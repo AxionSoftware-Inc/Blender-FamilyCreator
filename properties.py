@@ -2,6 +2,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from .core import FAMILY_FLAG, apply_family, family_root
+from .family_types import family_type_items
 
 
 def _dimension_update(self, context):
@@ -18,6 +19,12 @@ def _rule_update(self, context):
 def register_properties():
     bpy.types.Object.bfc_family_name = StringProperty(name="Family Name", default="Family")
     bpy.types.Object.bfc_category = StringProperty(name="Category", default="Generic Model")
+    bpy.types.Object.bfc_family_kind = EnumProperty(
+        name="Family Class",
+        description="Dedicated BIM family behavior profile",
+        items=family_type_items,
+        default="GENERIC",
+    )
     bpy.types.Object.bfc_type_name = StringProperty(name="Type Name", default="Default")
 
     bpy.types.Object.bfc_width = FloatProperty(name="Width", subtype="DISTANCE", min=0.001, default=1.0, update=_dimension_update)
@@ -37,6 +44,12 @@ def register_properties():
     bpy.types.Object.bfc_rule_z = EnumProperty(name="Z Rule", items=rule_items, default="FIXED", update=_rule_update)
 
     bpy.types.Scene.bfc_new_family_name = StringProperty(name="New Family", default="New Family")
+    bpy.types.Scene.bfc_new_family_kind = EnumProperty(
+        name="Family Class",
+        description="Choose the exact family logic before conversion",
+        items=family_type_items,
+        default="GENERIC",
+    )
     bpy.types.Scene.bfc_type_query = StringProperty(name="Type", default="Default")
     bpy.types.Scene.bfc_param_name = StringProperty(name="Parameter", default="Clearance")
     bpy.types.Scene.bfc_param_default = FloatProperty(name="Default", default=0.0)
@@ -50,7 +63,7 @@ def register_properties():
 
 def unregister_properties():
     names = [
-        "bfc_family_name", "bfc_category", "bfc_type_name",
+        "bfc_family_name", "bfc_category", "bfc_family_kind", "bfc_type_name",
         "bfc_width", "bfc_depth", "bfc_height",
         "bfc_base_width", "bfc_base_depth", "bfc_base_height",
         "bfc_rule_x", "bfc_rule_y", "bfc_rule_z",
@@ -60,8 +73,9 @@ def unregister_properties():
             delattr(bpy.types.Object, name)
 
     scene_names = [
-        "bfc_new_family_name", "bfc_type_query", "bfc_param_name", "bfc_param_default",
-        "bfc_bind_param", "bfc_bind_data_path", "bfc_bind_index", "bfc_bind_expression",
+        "bfc_new_family_name", "bfc_new_family_kind", "bfc_type_query",
+        "bfc_param_name", "bfc_param_default", "bfc_bind_param",
+        "bfc_bind_data_path", "bfc_bind_index", "bfc_bind_expression",
         "bfc_export_directory", "bfc_export_glb",
     ]
     for name in scene_names:
