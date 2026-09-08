@@ -164,11 +164,39 @@ def _axis_ratio(root, index):
     return max(float(current), 1e-6) / max(float(base), 1e-6)
 
 
+def _family_axis_anchors(root):
+    try:
+        from .family_types import get_family_type
+
+        spec = get_family_type(getattr(root, "bfc_family_kind", "GENERIC"))
+        anchors = spec.get("axis_anchors", {})
+        return [anchors.get(axis, "CENTER") for axis in AXES]
+    except Exception:
+        return ["CENTER", "CENTER", "CENTER"]
+
+
+def _anchor_coordinate(base_size, anchor_mode):
+    if anchor_mode == "MIN":
+        return -float(base_size) * 0.5
+    if anchor_mode == "MAX":
+        return float(base_size) * 0.5
+    return 0.0
+
+
+def anchored_coordinate(value, base_size, ratio, anchor_mode="CENTER"):
+    """Scale one family-space coordinate around a semantic class anchor."""
+    anchor = _anchor_coordinate(base_size, anchor_mode)
+    return anchor + (float(value) - anchor) * float(ratio)
+
+
 def apply_family(root):
     if not root or not bool(root.get(FAMILY_FLAG, False)):
         return
 
     ratios = [_axis_ratio(root, i) for i in range(3)]
+    base_dims = [root.bfc_base_width, root.bfc_base_depth, root.bfc_base_height]
+    anchors = _family_axis_anchors(root)
+
     root["bfc_applying"] = True
     try:
         for obj in family_members(root):
@@ -184,7 +212,12 @@ def apply_family(root):
             stretch = [1.0, 1.0, 1.0]
             for i, rule in enumerate(rules):
                 if rule in {"MOVE", "STRETCH"}:
-                    new_loc[i] = base_loc[i] * ratios[i]
+                    new_loc[i] = anchored_coordinate(
+                        base_loc[i],
+                        base_dims[i],
+                        ratios[i],
+                        anchors[i],
+                    )
                 if rule == "STRETCH":
                     stretch[i] = ratios[i]
 
