@@ -11,6 +11,27 @@ def _pretty_parameter(name):
     return (name or "").replace("_", " ").title()
 
 
+def _draw_batch_factory(layout, scene):
+    batch = layout.box()
+    batch.label(text="Batch Family Factory", icon="FILE_FOLDER")
+    batch.label(text="Convert a whole model folder using one exact Family Class.")
+    batch.prop(scene, "bfc_batch_input_directory")
+    batch.prop(scene, "bfc_batch_output_directory")
+    batch.prop(scene, "bfc_batch_family_kind")
+
+    spec = get_family_type(scene.bfc_batch_family_kind)
+    batch.label(text=spec["description"])
+
+    row = batch.row(align=True)
+    row.prop(scene, "bfc_batch_recursive")
+    row.prop(scene, "bfc_batch_export_glb")
+    batch.prop(scene, "bfc_batch_continue_on_error")
+    batch.operator("bfc.batch_convert", icon="EXPORT")
+    batch.label(text="Supports .blend, .fbx, .glb, .gltf and .obj")
+    if scene.bfc_batch_last_result:
+        batch.label(text=scene.bfc_batch_last_result, icon="INFO")
+
+
 class BFC_PT_main(Panel):
     bl_label = "Family Creator"
     bl_idname = "BFC_PT_main"
@@ -34,6 +55,7 @@ class BFC_PT_main(Panel):
             box.label(text="Parameters: " + ", ".join(spec["parameters"][:5]))
             box.operator("bfc.create_family", icon="ADD")
             box.label(text="Select all parts of one asset first.")
+            _draw_batch_factory(layout, scene)
             return
 
         header = layout.box()
@@ -137,6 +159,8 @@ class BFC_PT_main(Panel):
         export_box.prop(scene, "bfc_export_directory")
         export_box.prop(scene, "bfc_export_glb")
         export_box.operator("bfc.export_family", icon="EXPORT")
+
+        _draw_batch_factory(layout, scene)
 
 
 CLASSES = (BFC_PT_main,)
