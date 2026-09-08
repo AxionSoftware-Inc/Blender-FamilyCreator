@@ -3,7 +3,9 @@ from pathlib import Path
 
 import bpy
 
+from . import core
 from .core import SUPPORTED_TYPES
+from .generators import rebuild_family_geometry, supports_generation
 from .typed import create_typed_family, export_typed_family
 
 
@@ -62,7 +64,6 @@ def import_asset(filepath, context):
 
 
 def _collect_owned_datablocks(objects):
-    """Collect data/material datablocks referenced by this imported asset only."""
     owned = set()
     for obj in objects:
         data = getattr(obj, "data", None)
@@ -77,13 +78,23 @@ def _collect_owned_datablocks(objects):
 
 
 def _remove_objects(objects):
-    for obj in list(objects):
+    unique = []
+    seen = set()
+    for obj in objects:
+        if obj is None or obj in seen:
+            continue
+        seen.add(obj)
+        unique.append(obj)
+
+    # Children first prevents generated/template descendants from surviving a
+    # batch item after their family root is removed.
+    unique.sort(key=lambda obj: len(obj.children_recursive), reverse=False)
+    for obj in reversed(unique):
         if obj and obj.name in bpy.data.objects:
             bpy.data.objects.remove(obj, do_unlink=True)
 
 
 def _remove_owned_datablocks(datablocks):
-    """Remove only imported datablocks that became unused after object cleanup."""
     removable = [datablock for datablock in datablocks if datablock is not None and datablock.users == 0]
     if not removable:
         return
@@ -91,14 +102,13 @@ def _remove_owned_datablocks(datablocks):
     try:
         bpy.data.batch_remove(ids=removable)
     except Exception:
-        # Safety beats aggressive cleanup. Leave tracked orphans rather than
-        # touching unrelated user data when a Blender build rejects batch_remove.
         pass
 
 
 def _cleanup_import(imported, root=None, owned_datablocks=None):
     cleanup_objects = list(imported)
     if root is not None:
+        cleanup_objects.extend(list(root.children_recursive))
         cleanup_objects.append(root)
     _remove_objects(cleanup_objects)
     _remove_owned_datablocks(owned_datablocks or set())
@@ -116,6 +126,10 @@ def convert_asset(context, filepath, output_directory, family_kind, export_glb=T
             raise ValueError("No supported mesh/curve geometry found")
 
         root = create_typed_family(context, geometry, filepath.stem, family_kind)
+        generator_result = None
+        if supports_generation(family_kind):
+            generator_result = rebuild_family_geometry(root)
+
         family_output = Path(output_directory) / family_kind.lower() / filepath.stem
         manifest, glb = export_typed_family(root, family_output, export_glb=export_glb)
         return {
@@ -124,6 +138,7 @@ def convert_asset(context, filepath, output_directory, family_kind, export_glb=T
             "family_kind": family_kind,
             "manifest": str(manifest),
             "glb": str(glb) if glb else None,
+            "generator": generator_result,
         }
     finally:
         _cleanup_import(imported, root=root, owned_datablocks=owned_datablocks)
