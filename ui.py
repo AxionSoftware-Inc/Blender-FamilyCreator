@@ -40,20 +40,27 @@ class BFC_PT_main(Panel):
         header.operator("bfc.apply_family_class", icon="FILE_REFRESH")
         header.label(text="Change class, then Apply Family Class Logic.")
 
+        editable = set(spec.get("editable_axes", ()))
         dims = layout.box()
         dims.label(text="Dimensions", icon="ARROW_LEFTRIGHT")
-        dims.prop(root, "bfc_width")
-        dims.prop(root, "bfc_depth")
-        dims.prop(root, "bfc_height")
-        editable = spec.get("editable_axes", ())
-        dims.label(text="Profile axes: " + (", ".join(editable) if editable else "fixed proportions"))
+        row = dims.row()
+        row.enabled = "X" in editable
+        row.prop(root, "bfc_width")
+        row = dims.row()
+        row.enabled = "Y" in editable
+        row.prop(root, "bfc_depth")
+        row = dims.row()
+        row.enabled = "Z" in editable
+        row.prop(root, "bfc_height")
+        dims.label(text="Profile axes: " + (", ".join(sorted(editable)) if editable else "fixed proportions"))
         row = dims.row(align=True)
         row.operator("bfc.reset_family", icon="LOOP_BACK")
         row.operator("bfc.smart_analyze", icon="MODIFIER")
 
         params_info = layout.box()
-        params_info.label(text="Class Parameters", icon="PROPERTIES")
-        for parameter in spec.get("parameters", ()): 
+        params_info.label(text="Semantic Class Parameters", icon="PROPERTIES")
+        params_info.label(text="Contract for class-specific geometry modules:")
+        for parameter in spec.get("parameters", ()):
             params_info.label(text=parameter)
 
         types_box = layout.box()
