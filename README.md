@@ -1,115 +1,275 @@
 # Blender Family Creator
 
-Turn ordinary Blender assets into **typed, parameter-driven BIM families** for Axion's mobile BIM stack.
+Convert ordinary Blender assets into **typed, semantic and parameter-driven BIM families** for Axion's mobile BIM stack.
 
-The core idea is simple: **do not force every model through one universal scaling algorithm**. A sofa, table, window and stair obey different geometry rules, so Family Creator assigns an exact semantic **Family Class** first and runs dedicated logic for that class.
+The project is intentionally not a universal XYZ scaler. A sofa, table, door, cabinet and stair have different geometry rules, so conversion begins by choosing an exact **Family Class** and then runs class-specific analysis and generation logic.
 
-## Why this exists
+## Core idea
 
-A BIM engine without a starting family library is painful: doors, windows, chairs, tables, sanitary fixtures, cabinets and hundreds of other assets have to be modeled and parameterized manually.
+Blender already has a huge ecosystem of reusable `.blend`, FBX, GLB/GLTF and OBJ models. Instead of modeling a BIM starting library from zero, Family Creator turns existing assets into families through this pipeline:
 
-Blender already has an enormous reusable model ecosystem. Family Creator adds a BIM-oriented conversion layer on top so existing assets can become reusable families quickly.
+```text
+Imported asset
+  -> Family Class
+  -> Semantic member roles
+  -> Class-specific deformation rules
+  -> Auto-detected semantic parameters
+  -> Optional procedural rebuild
+  -> Quality gate
+  -> Family Types / Variants
+  -> .family.json + .glb
+```
 
 ## Family Class vs Family Type
 
-These are intentionally separate concepts:
+- **Family Class** = behavior contract such as `SOFA`, `TABLE`, `DOOR`, `WINDOW`, `STAIR`.
+- **Family Type / Variant** = one saved parameter set inside a family, such as `900x2100`, `1200x2100`, `2-seat`, `3-seat`.
+- **Member Role** = semantic part such as `SEAT`, `ARM_LEFT`, `TOP`, `LEG`, `FRAME_LEFT`, `GLASS`, `SHELF`, `TREAD`.
 
-- **Family Class** = semantic behavior such as `SOFA`, `TABLE`, `DOOR`, `WINDOW`, `STAIR`.
-- **Family Type / Variant** = saved dimensional configuration inside one family, such as `900x2100`, `1200x2100`, `2-seat`, `3-seat`, etc.
-
-The class determines **how geometry is allowed to change**. The type stores one concrete set of parameter values.
+The class determines how geometry is allowed to change. Types store concrete dimensions and semantic parameter values.
 
 ## Current family classes
 
-The v0.2 registry contains:
+### Furniture
 
-- Furniture: Sofa, Table, Chair, Bed
-- Casework: Cabinet, Wardrobe, Shelf, Kitchen Base Cabinet, Kitchen Wall Cabinet
-- Openings: Door, Window
-- Circulation: Stair
-- Plumbing: Toilet, Sink/Basin, Bathtub
-- Generic fallback
+- `SOFA`
+- `TABLE`
+- `CHAIR`
+- `BED`
 
-See `docs/FAMILY_CLASSES.md` for the exact behavior of each class.
+### Casework
 
-## Dedicated deformation strategies
+- `CABINET`
+- `WARDROBE`
+- `SHELF`
+- `KITCHEN_BASE`
+- `KITCHEN_WALL`
 
-Every member still exposes per-axis rules:
+### Openings
 
-| Rule | Meaning | Typical use |
-|---|---|---|
-| `STRETCH` | resize geometry on that family axis | sofa center, tabletop, glazing, cabinet carcass |
-| `MOVE` | preserve geometry size but move with the changing boundary | sofa arms, table legs, frame edges, handles |
-| `FIXED` | preserve size and position on that axis | protected hardware and fixed details |
+- `DOOR`
+- `WINDOW`
 
-But these rules are no longer inferred identically for every model.
+### Circulation
+
+- `STAIR`
+
+### Plumbing / fixed fixtures
+
+- `TOILET`
+- `SINK`
+- `BATHTUB`
+
+### Fallback
+
+- `GENERIC`
+
+See `docs/FAMILY_CLASSES.md` for the class contracts.
+
+## Semantic analysis
+
+`Analyze by Family Class` classifies source members using both object names and normalized geometry.
 
 Examples:
 
-- **Sofa**: primarily width-driven; side arms move while central upholstery stretches.
-- **Table**: tabletop stretches in plan; legs preserve their section and move toward new corners.
-- **Door / Window**: width and height vary while depth is protected; edge frame parts move and panel/glazing spans stretch.
-- **Casework**: panel thickness should stay stable while the overall carcass changes size.
-- **Stair**: ordinary scaling is intentionally limited. Width works in v0.2, while run/rise/step-count will be handled by a dedicated discrete stair generator.
+- Sofa: `ARM_LEFT`, `ARM_RIGHT`, `SEAT`, `BACK`, `LEG`, `BASE`, `DECOR`
+- Table: `TOP`, `LEG`, `APRON`, `SUPPORT`, `DECOR`
+- Chair: `SEAT`, `BACK`, `LEG`, `ARM`, `FRAME`
+- Bed: `MATTRESS`, `BASE`, `HEADBOARD`, `FOOTBOARD`, `LEG`, `SLAT`
+- Casework: `SIDE_LEFT`, `SIDE_RIGHT`, `TOP`, `BOTTOM`, `BACK`, `SHELF`, `DOOR`, `DRAWER_FRONT`, `HANDLE`, `TOE_KICK`
+- Door / Window: frame edges, panel/leaf, glass, mullion, handle, hinge and hardware
+- Stair: `TREAD`, `RISER`, `STRINGER`, `HANDRAIL`, `BALUSTER`, `LANDING`
 
-## Current workflow
+Downloaded assets with generic names such as `Object.001` can still receive useful roles from their bounding-box proportions and location.
 
-1. Import or open a Blender asset.
-2. Select all objects belonging to that asset.
-3. Open **3D Viewport → Sidebar → Family**.
-4. Enter a family name.
-5. Choose the exact **Family Class**.
-6. Click **Create Typed Family from Selection**.
-7. Change dimensions and inspect the result.
-8. Run **Analyze by Family Class** after geometry cleanup or class changes.
-9. Override individual member rules only when necessary.
-10. Save useful dimensional variants as Family Types.
-11. Export the family package.
+## Geometry rules
 
-## Export format
+Every member has an X/Y/Z rule:
 
-The initial package remains engine-friendly:
+| Rule | Meaning |
+|---|---|
+| `STRETCH` | Resize on this family axis |
+| `MOVE` | Keep size but move with the changing family boundary |
+| `FIXED` | Preserve size and position on this axis |
+
+The rules are generated by the selected Family Class rather than one global heuristic.
+
+## Semantic parameters
+
+Class parameters are real Blender family properties and are stored inside saved Family Types.
+
+Examples:
+
+- Sofa: `seat_height`, `arm_width`, `seat_count`
+- Table: `top_thickness`
+- Chair: `seat_height`
+- Bed: `mattress_height`
+- Cabinet / Wardrobe: `panel_thickness`
+- Shelf: `panel_thickness`, `shelf_count`
+- Kitchen Base: `panel_thickness`, `toe_kick_height`
+- Door: `frame_width`, `panel_thickness`
+- Window: `frame_width`, `sill_height`
+- Stair: `total_run`, `total_rise`, `tread_depth`, `riser_height`, `step_count`
+
+Most of these are auto-detected from the source model when the property is still `0 / Auto`.
+
+## Procedural generators
+
+`generators/` contains class-specific geometry builders. Source pieces used for repetition become hidden **templates** and are excluded from export. Generated instances are tagged separately, so rebuilding does not accumulate duplicate geometry.
+
+Current generator behavior includes:
+
+- **Sofa**: arm width, seat height and repeated `seat_count` modules
+- **Table**: semantic tabletop thickness
+- **Chair**: seat-height relocation with leg adjustment
+- **Bed**: mattress thickness
+- **Cabinet / Wardrobe / Kitchen**: panel thickness and kitchen toe-kick height
+- **Shelf**: panel thickness plus procedural shelf count
+- **Door**: frame width and door-leaf thickness
+- **Window**: frame width
+- **Stair**: straight-stair tread/riser generation from solved run/rise parameters
+
+A saved Family Type automatically triggers a generator rebuild for supported classes when applied.
+
+## Semantic anchors
+
+Dimensions are not always scaled around the object center.
+
+Examples:
+
+- Door height uses a `MIN` Z anchor so the bottom stays on the floor.
+- Table/chair/bed/casework height also grows from the bottom.
+- Stair run/rise use start-point anchors instead of center scaling.
+
+This prevents the common BIM error where changing height moves the whole object away from its host plane.
+
+## Quality gate
+
+Every family receives a conversion quality report:
+
+- semantic role coverage
+- required class roles
+- quality score
+- warnings
+- errors
+- ready / needs-review state
+
+For example, a Sofa without a detected `SEAT`, a Door without leaf/frame roles or a Stair without a `TREAD` is flagged for review instead of silently being treated as a successful semantic family.
+
+The quality report is included in the exported `.family.json` and in batch reports.
+
+## Batch Family Factory
+
+A whole folder can be converted with one exact Family Class.
+
+Example:
+
+```text
+80 downloaded sofa models
+  -> Family Class = SOFA
+  -> Build Family Library
+```
+
+Supported source formats:
+
+```text
+.blend
+.fbx
+.glb
+.gltf
+.obj
+```
+
+Typical output:
+
+```text
+library/
+  sofa/
+    Sofa_A/
+      sofa_a.family.json
+      sofa_a.glb
+    Sofa_B/
+      sofa_b.family.json
+      sofa_b.glb
+  batch-report.json
+```
+
+`batch-report.json` records converted files, failures, generator results, quality scores and `needs_review` items.
+
+Batch cleanup only removes objects/datablocks owned by the imported asset; it does not run a global orphan purge on the user's Blender scene.
+
+## Manual workflow
+
+1. Import or open an asset.
+2. Select all geometry belonging to the asset.
+3. Open **3D Viewport -> Sidebar -> Family**.
+4. Choose the exact **Family Class**.
+5. Click **Create Typed Family from Selection**.
+6. Inspect the Quality score and semantic roles.
+7. Run **Analyze by Family Class** after cleanup or class changes.
+8. Change class dimensions and semantic parameters.
+9. Click **Rebuild Procedural Geometry** when supported.
+10. Correct member roles/rules manually only when necessary.
+11. Save useful parameter sets as Family Types.
+12. Export `.family.json + .glb`.
+
+## Export package
 
 ```text
 my_family.family.json
 my_family.glb
 ```
 
-The JSON now includes the semantic `familyKind`, family profile, editable axes, expected class parameters, dimensions, saved variants, custom parameters and member rules.
+The JSON includes:
 
-## Architecture
+- schema version
+- Family Class
+- dimensions
+- semantic parameters
+- Family Types
+- class profile
+- axis anchors
+- member roles and rules
+- generated/template metadata
+- generator revision
+- quality report
+
+Templates used by procedural generation are not exported into GLB.
+
+## Project structure
 
 ```text
 family_types/
-  registry.py      # exact BIM family classes and parameter contracts
-  strategies.py    # per-class object-level deformation rules
+  registry.py          # class registry and parameter contracts
+  strategies.py        # dispatch for semantic analysis
+  sofa.py              # Sofa semantic-role logic
+  table.py              # Table semantic-role logic
+  door.py               # Door analysis logic
+  window.py             # Window analysis logic
+  stair.py              # Stair analysis + pure parameter solver
+  ...
 
-typed.py           # routes create/analyze/export through the selected class
-core.py            # shared family storage, transforms, types and GLB export
+generators/
+  common.py             # template/clone/anchored-resize helpers
+  sofa.py               # repeated sofa seats + semantic geometry
+  shelf.py              # repeated shelves
+  stair.py              # repeated stair treads/risers
+  door.py               # opening semantic geometry
+  cabinet.py            # casework semantic geometry
+  ...
+
+core.py                 # family storage, transforms, variants and GLB export
+typed.py                # typed family pipeline and semantic parameters
+quality.py              # conversion quality gates
+batch.py                # folder-to-library conversion
+operators.py            # Blender operators
+ui.py                   # Sidebar UI
 ```
-
-As one class becomes more sophisticated, its logic can move into a dedicated module (`sofa.py`, `door.py`, `stair.py`, etc.) without affecting unrelated families.
-
-## Development direction
-
-The priority is not adding hundreds of generic heuristics. It is making a small set of high-value family classes extremely reliable, then converting many existing Blender assets through those deterministic pipelines.
-
-Recommended order:
-
-1. Sofa
-2. Table
-3. Door
-4. Window
-5. Cabinet / Wardrobe
-6. Bed
-7. Chair
-8. Stair
-9. Plumbing fixtures
-
-After these are strong enough, batch conversion can turn large Blender model collections into an Axion-ready starting library very quickly.
 
 ## Development status
 
-**v0.2.0 — Typed Family Architecture**
+**v0.3.0 — Semantic Family Factory**
 
-The addon now has explicit family classification and separate deformation strategies. Runtime validation inside Blender with representative real assets is the next test layer.
+The architecture now supports explicit Family Classes, semantic member roles, real semantic parameters, class-specific generators, quality gates and batch library conversion.
+
+The next validation layer is representative real-world Blender assets inside Blender 4.x. The code is intentionally organized so failures discovered in Sofa logic can be fixed in Sofa analysis/generation without destabilizing Door, Stair or other classes.
