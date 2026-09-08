@@ -6,13 +6,16 @@ from .core import (
     apply_family,
     apply_type,
     bind_parameter,
-    capture_family,
-    create_family,
     delete_type,
-    export_family,
     family_root,
     reset_family,
     save_type,
+)
+from .typed import (
+    apply_family_kind,
+    capture_typed_family,
+    create_typed_family,
+    export_typed_family,
 )
 
 
@@ -22,25 +25,45 @@ def active_root(context):
 
 class BFC_OT_create_family(Operator):
     bl_idname = "bfc.create_family"
-    bl_label = "Create Family from Selection"
+    bl_label = "Create Typed Family from Selection"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         try:
-            root = create_family(context, list(context.selected_objects), context.scene.bfc_new_family_name)
+            root = create_typed_family(
+                context,
+                list(context.selected_objects),
+                context.scene.bfc_new_family_name,
+                context.scene.bfc_new_family_kind,
+            )
         except ValueError as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         bpy.ops.object.select_all(action="DESELECT")
         root.select_set(True)
         context.view_layer.objects.active = root
-        self.report({"INFO"}, f"Family '{root.bfc_family_name}' created")
+        self.report({"INFO"}, f"{root.bfc_family_kind} family '{root.bfc_family_name}' created")
+        return {"FINISHED"}
+
+
+class BFC_OT_apply_family_class(Operator):
+    bl_idname = "bfc.apply_family_class"
+    bl_label = "Apply Family Class Logic"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        root = active_root(context)
+        if not root:
+            self.report({"ERROR"}, "Select a family or one of its members")
+            return {"CANCELLED"}
+        spec = apply_family_kind(root, root.bfc_family_kind, recapture=True)
+        self.report({"INFO"}, f"Applied {spec['label']} logic")
         return {"FINISHED"}
 
 
 class BFC_OT_smart_analyze(Operator):
     bl_idname = "bfc.smart_analyze"
-    bl_label = "Smart Analyze Members"
+    bl_label = "Analyze by Family Class"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -51,14 +74,14 @@ class BFC_OT_smart_analyze(Operator):
 
         current = (root.bfc_width, root.bfc_depth, root.bfc_height)
         reset_family(root)
-        capture_family(root)
+        capture_typed_family(root)
         root["bfc_applying"] = True
         try:
             root.bfc_width, root.bfc_depth, root.bfc_height = current
         finally:
             root["bfc_applying"] = False
         apply_family(root)
-        self.report({"INFO"}, "Stretch / Move / Fixed rules regenerated")
+        self.report({"INFO"}, f"Rules regenerated using {root.bfc_family_kind} logic")
         return {"FINISHED"}
 
 
@@ -179,7 +202,7 @@ class BFC_OT_export_family(Operator):
             self.report({"ERROR"}, "Choose an export folder")
             return {"CANCELLED"}
         try:
-            manifest, glb = export_family(root, directory, context.scene.bfc_export_glb)
+            manifest, glb = export_typed_family(root, directory, context.scene.bfc_export_glb)
         except Exception as exc:
             self.report({"ERROR"}, f"Export failed: {exc}")
             return {"CANCELLED"}
@@ -189,6 +212,7 @@ class BFC_OT_export_family(Operator):
 
 CLASSES = (
     BFC_OT_create_family,
+    BFC_OT_apply_family_class,
     BFC_OT_smart_analyze,
     BFC_OT_reset_family,
     BFC_OT_save_type,
