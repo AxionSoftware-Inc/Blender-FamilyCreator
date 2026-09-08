@@ -50,8 +50,6 @@ def _write_solved(root, solved):
     for name, value in solved.items():
         root[property_name(name)] = int(value) if name == "step_count" else float(value)
 
-    # Stair run/rise are semantic dimensions generated procedurally rather than
-    # ordinary scaling axes. Keep the exported overall envelope honest.
     root["bfc_applying"] = True
     try:
         root.bfc_depth = float(solved["total_run"])
@@ -70,12 +68,12 @@ def rebuild(root):
         return {"changed": False, "message": str(exc)}
 
     tread_templates = prepare_template_group(root, {"TREAD"}, TREAD_GROUP)
-    riser_templates = prepare_template_group(root, {"RISER"}, RISER_GROUP)
     if not tread_templates:
         return {
             "changed": False,
             "message": "STAIR generator needs at least one member classified as TREAD",
         }
+    riser_templates = prepare_template_group(root, {"RISER"}, RISER_GROUP)
 
     _write_solved(root, solved)
 
