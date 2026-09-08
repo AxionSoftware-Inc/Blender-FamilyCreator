@@ -81,13 +81,14 @@ class BFC_PT_main(Panel):
 
         if active and active != root and bool(active.get("bfc_is_member", False)):
             rules = layout.box()
-            rules.label(text=f"Member Rules — {active.name}", icon="OBJECT_DATA")
+            rules.label(text=f"Member — {active.name}", icon="OBJECT_DATA")
+            rules.prop(active, "bfc_member_role", text="Semantic Role")
             row = rules.row(align=True)
             row.prop(active, "bfc_rule_x", text="X")
             row.prop(active, "bfc_rule_y", text="Y")
             row.prop(active, "bfc_rule_z", text="Z")
-            rules.label(text="Auto rules come from the selected family class.")
-            rules.label(text="Manual overrides remain possible per object.")
+            rules.label(text="Analyze assigns role + rules from the family class.")
+            rules.label(text="Role/rules can be corrected manually when needed.")
 
         params = layout.box()
         params.label(text="Advanced Custom Parameters", icon="DRIVER")
