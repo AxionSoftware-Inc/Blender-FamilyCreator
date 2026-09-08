@@ -9,6 +9,7 @@ from .common import (
     prepare_template_group,
     role_members,
     set_family_local_location,
+    unmark_templates,
 )
 
 
@@ -68,10 +69,12 @@ def rebuild(root):
     inner_left, inner_right = _inner_bounds(root)
     usable = inner_right - inner_left
     if usable <= 0.0:
+        unmark_templates(templates)
         return {"changed": False, "message": "SOFA has no usable width between arms"}
 
     slot = usable / float(target_count)
     if seat_width > slot * 1.08:
+        unmark_templates(templates)
         return {
             "changed": False,
             "message": (
