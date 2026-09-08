@@ -1,0 +1,91 @@
+import bpy
+from bpy.types import Panel
+
+from .core import family_root, read_custom_parameters, read_types
+
+
+class BFC_PT_main(Panel):
+    bl_label = "Family Creator"
+    bl_idname = "BFC_PT_main"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Family"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        active = context.active_object
+        root = family_root(active) if active else None
+
+        if not root:
+            box = layout.box()
+            box.label(text="Convert Blender assets into BIM families", icon="OUTLINER_OB_GROUP_INSTANCE")
+            box.prop(scene, "bfc_new_family_name")
+            box.operator("bfc.create_family", icon="ADD")
+            box.label(text="Select all parts of one asset first.")
+            return
+
+        header = layout.box()
+        header.prop(root, "bfc_family_name")
+        header.prop(root, "bfc_category")
+        header.label(text=f"Active type: {root.bfc_type_name}")
+
+        dims = layout.box()
+        dims.label(text="Dimensions", icon="ARROW_LEFTRIGHT")
+        dims.prop(root, "bfc_width")
+        dims.prop(root, "bfc_depth")
+        dims.prop(root, "bfc_height")
+        row = dims.row(align=True)
+        row.operator("bfc.reset_family", icon="LOOP_BACK")
+        row.operator("bfc.smart_analyze", icon="MODIFIER")
+
+        types_box = layout.box()
+        types_box.label(text="Family Types", icon="PRESET")
+        types_box.prop(scene, "bfc_type_query")
+        row = types_box.row(align=True)
+        row.operator("bfc.save_type", icon="FILE_TICK")
+        row.operator("bfc.apply_type", icon="CHECKMARK")
+        row.operator("bfc.delete_type", icon="TRASH")
+        type_names = list(read_types(root).keys())
+        if type_names:
+            types_box.label(text="Saved: " + ", ".join(type_names[:5]) + ("…" if len(type_names) > 5 else ""))
+
+        if active and active != root and bool(active.get("bfc_is_member", False)):
+            rules = layout.box()
+            rules.label(text=f"Member Rules — {active.name}", icon="OBJECT_DATA")
+            row = rules.row(align=True)
+            row.prop(active, "bfc_rule_x", text="X")
+            row.prop(active, "bfc_rule_y", text="Y")
+            row.prop(active, "bfc_rule_z", text="Z")
+            rules.label(text="Stretch = resize | Move = reposition | Fixed = preserve")
+
+        params = layout.box()
+        params.label(text="Custom Parameters", icon="DRIVER")
+        row = params.row(align=True)
+        row.prop(scene, "bfc_param_name", text="Name")
+        row.prop(scene, "bfc_param_default", text="Default")
+        params.operator("bfc.add_parameter", icon="ADD")
+        custom = read_custom_parameters(root)
+        for slug, meta in list(custom.items())[:6]:
+            prop_name = meta.get("property")
+            if prop_name in root:
+                params.prop(root, f'["{prop_name}"]', text=meta.get("name", slug))
+
+        bind = layout.box()
+        bind.label(text="Advanced Driver Binding", icon="LINKED")
+        bind.prop(scene, "bfc_bind_param")
+        bind.prop(scene, "bfc_bind_data_path")
+        row = bind.row(align=True)
+        row.prop(scene, "bfc_bind_index")
+        row.prop(scene, "bfc_bind_expression")
+        bind.operator("bfc.bind_parameter", icon="DRIVER")
+        bind.label(text="Active object must be a family member.")
+
+        export_box = layout.box()
+        export_box.label(text="Mobile BIM Export", icon="EXPORT")
+        export_box.prop(scene, "bfc_export_directory")
+        export_box.prop(scene, "bfc_export_glb")
+        export_box.operator("bfc.export_family", icon="EXPORT")
+
+
+CLASSES = (BFC_PT_main,)
