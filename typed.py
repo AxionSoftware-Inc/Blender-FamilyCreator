@@ -21,7 +21,6 @@ def capture_typed_family(root):
     root["bfc_applying"] = True
     try:
         for obj in core.family_members(root):
-            # Generic capture stores stable base transforms/bounds.
             core.analyze_member(root, obj)
 
             mins, maxs = core.local_bbox(obj, root)
@@ -107,9 +106,19 @@ def typed_manifest_metadata(root):
     }
 
 
+def _inject_member_roles(root, data):
+    roles = {
+        obj.name: (getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN")
+        for obj in core.family_members(root)
+    }
+    for member in data.get("members", []):
+        member["role"] = roles.get(member.get("name"), "UNKNOWN")
+
+
 def export_typed_family(root, directory, export_glb=True):
     manifest_path, glb_path = core.export_family(root, directory, export_glb)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     data.update(typed_manifest_metadata(root))
+    _inject_member_roles(root, data)
     manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return manifest_path, glb_path
