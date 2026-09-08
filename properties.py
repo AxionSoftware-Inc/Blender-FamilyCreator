@@ -46,6 +46,11 @@ def register_properties():
         default="GENERIC",
     )
     bpy.types.Object.bfc_type_name = StringProperty(name="Type Name", default="Default")
+    bpy.types.Object.bfc_member_role = StringProperty(
+        name="Member Role",
+        description="Semantic role assigned by the selected family class, e.g. SEAT, ARM_LEFT, LEG",
+        default="UNKNOWN",
+    )
 
     bpy.types.Object.bfc_width = FloatProperty(name="Width", subtype="DISTANCE", min=0.001, default=1.0, update=_dimension_update)
     bpy.types.Object.bfc_depth = FloatProperty(name="Depth", subtype="DISTANCE", min=0.001, default=1.0, update=_dimension_update)
@@ -83,7 +88,7 @@ def register_properties():
 
 def unregister_properties():
     names = [
-        "bfc_family_name", "bfc_category", "bfc_family_kind", "bfc_type_name",
+        "bfc_family_name", "bfc_category", "bfc_family_kind", "bfc_type_name", "bfc_member_role",
         "bfc_width", "bfc_depth", "bfc_height",
         "bfc_base_width", "bfc_base_depth", "bfc_base_height",
         "bfc_rule_x", "bfc_rule_y", "bfc_rule_z",
