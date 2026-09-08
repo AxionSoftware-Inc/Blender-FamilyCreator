@@ -3,7 +3,11 @@ import json
 from . import core
 from .family_types import get_family_type
 from .family_types.parameter_specs import get_parameter_specs, property_name
-from .family_types.strategies import classify_member_role, infer_member_rules
+from .family_types.strategies import (
+    classify_member_role,
+    infer_member_rules,
+    infer_semantic_parameters,
+)
 
 
 def family_profile(root):
@@ -39,8 +43,6 @@ def ensure_semantic_parameters(root, family_kind=None):
         try:
             root.id_properties_ui(prop).update(**ui_args)
         except Exception:
-            # Older Blender IDProperty UI APIs can be stricter; the value is
-            # still valid even when optional UI metadata cannot be applied.
             pass
     return specs
 
@@ -66,14 +68,30 @@ def apply_semantic_parameter_values(root, values, family_kind=None):
         root[prop] = int(value) if spec.get("type") == "INT" else float(value)
 
 
+def apply_inferred_semantic_parameter_values(root, values, family_kind=None):
+    """Apply analysis results only to parameters that are still Auto/zero."""
+    family_kind = family_kind or getattr(root, "bfc_family_kind", "GENERIC")
+    specs = ensure_semantic_parameters(root, family_kind)
+    for parameter, value in (values or {}).items():
+        if parameter not in specs or value is None:
+            continue
+        spec = specs[parameter]
+        prop = property_name(parameter)
+        current = root.get(prop, 0)
+        if float(current) > 0.0:
+            continue
+        root[prop] = int(value) if spec.get("type") == "INT" else float(value)
+
+
 def capture_typed_family(root):
-    """Capture base transforms and assign semantic roles/rules for the selected class."""
+    """Capture base transforms, semantic roles, rules and auto parameters."""
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     family_dims = (
         max(abs(root.bfc_base_width), 1e-9),
         max(abs(root.bfc_base_depth), 1e-9),
         max(abs(root.bfc_base_height), 1e-9),
     )
+    member_infos = []
 
     root["bfc_applying"] = True
     try:
@@ -113,8 +131,23 @@ def capture_typed_family(root):
             obj.bfc_rule_x = rules["X"]
             obj.bfc_rule_y = rules["Y"]
             obj.bfc_rule_z = rules["Z"]
+
+            member_infos.append({
+                "name": obj.name,
+                "role": role,
+                "mins": tuple(float(v) for v in mins),
+                "maxs": tuple(float(v) for v in maxs),
+                "span": tuple(float(v) for v in span),
+                "center": tuple(float(v) for v in center),
+                "normalized_span": tuple(float(v) for v in spans),
+                "normalized_center": tuple(float(v) for v in signed_centers),
+            })
     finally:
         root["bfc_applying"] = False
+
+    inferred = infer_semantic_parameters(family_kind, member_infos, family_dims)
+    apply_inferred_semantic_parameter_values(root, inferred, family_kind)
+    return member_infos
 
 
 def apply_family_kind(root, family_kind, recapture=True):
