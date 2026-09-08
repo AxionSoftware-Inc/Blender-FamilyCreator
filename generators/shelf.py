@@ -4,10 +4,10 @@ from .common import (
     choose_center_prototype,
     clear_generated,
     duplicate_template,
-    evenly_spaced_centers,
     prepare_template_group,
     role_members,
     set_family_local_location,
+    unmark_templates,
 )
 
 
@@ -52,6 +52,7 @@ def rebuild(root):
 
     bottom, top = _vertical_bounds(root)
     if top <= bottom:
+        unmark_templates(templates)
         return {"changed": False, "message": "Invalid shelf interior height"}
 
     prototype = choose_center_prototype(templates, root, axis=2)
