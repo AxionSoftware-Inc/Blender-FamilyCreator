@@ -13,12 +13,7 @@ ROLE_DECOR = "DECOR"
 
 
 def classify_role(spans, centers, name=""):
-    """Classify one sofa member from its normalized envelope and object name.
-
-    `centers` is signed family-space center ratios in X/Y/Z where +/-1 is
-    approximately the outer family edge. Names are treated as hints, not a
-    requirement, so unnamed Blender assets still get useful behavior.
-    """
+    """Classify one sofa member from its normalized envelope and object name."""
     sx, sy, sz = spans
     cx, cy, cz = centers
     lowered = (name or "").lower()
@@ -45,24 +40,42 @@ def classify_role(spans, centers, name=""):
             return ROLE_ARM_RIGHT
         return ROLE_ARM
 
-    # Geometry-only fallbacks for poorly named downloaded assets.
-    # Narrow pieces near the X edges are usually arms, legs, or side panels.
     if sx <= 0.24 and abs(cx) >= 0.62:
         if sz <= 0.45 and cz <= -0.15:
             return ROLE_LEG
         return ROLE_ARM_LEFT if cx < 0.0 else ROLE_ARM_RIGHT
 
-    # Wide, shallow, low members are likely seat/base elements.
     if sx >= 0.45 and sy >= 0.35 and sz <= 0.35 and cz <= 0.20:
         return ROLE_SEAT
 
-    # Wide members toward the rear/top are likely back rests.
     if sx >= 0.40 and (abs(cy) >= 0.35 or cz >= 0.15) and sz >= 0.25:
         return ROLE_BACK
 
     if sx >= 0.50:
         return ROLE_BASE
     return ROLE_UNKNOWN
+
+
+def infer_semantic_parameters(members, family_dims):
+    seats = [member for member in members if member.get("role") == ROLE_SEAT]
+    arms = [
+        member
+        for member in members
+        if member.get("role") in {ROLE_ARM_LEFT, ROLE_ARM_RIGHT, ROLE_ARM}
+    ]
+
+    values = {}
+    if seats:
+        values["seat_count"] = len(seats)
+        floor_z = -float(family_dims[2]) * 0.5
+        seat_tops = [float(member["maxs"][2]) - floor_z for member in seats]
+        values["seat_height"] = sum(seat_tops) / len(seat_tops)
+
+    if arms:
+        arm_widths = [abs(float(member["span"][0])) for member in arms]
+        values["arm_width"] = sum(arm_widths) / len(arm_widths)
+
+    return values
 
 
 def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
@@ -73,8 +86,6 @@ def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
     if role in {ROLE_ARM_LEFT, ROLE_ARM_RIGHT, ROLE_ARM, ROLE_LEG, ROLE_DECOR}:
         return "MOVE"
 
-    # A monolithic seat/back/base should stretch. Small individual cushions
-    # should preserve their size and move with their normalized X position.
     if role in {ROLE_SEAT, ROLE_BACK}:
         return "STRETCH" if span_ratio >= 0.52 else "MOVE"
     if role == ROLE_BASE:
