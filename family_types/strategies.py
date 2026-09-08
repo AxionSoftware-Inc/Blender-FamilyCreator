@@ -50,6 +50,15 @@ def classify_member_role(type_id, spans, signed_centers, name=""):
     return classifier(spans, signed_centers, name=name)
 
 
+def infer_semantic_parameters(type_id, members, family_dims):
+    module = family_module(type_id)
+    inference = getattr(module, "infer_semantic_parameters", None)
+    if inference is None:
+        return {}
+    values = inference(members, family_dims)
+    return values if isinstance(values, dict) else {}
+
+
 def infer_member_rule(type_id, axis, span_ratio, center_ratio, name="", role=None):
     module = family_module(type_id)
     if role is not None:
