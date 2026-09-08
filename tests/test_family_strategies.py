@@ -1,5 +1,6 @@
 import unittest
 
+from family_types.registry import get_family_type
 from family_types.strategies import classify_member_role, infer_member_rule
 
 
@@ -25,15 +26,40 @@ class FamilyStrategyTests(unittest.TestCase):
         self.assertEqual(classify_member_role("SOFA", (0.14, 0.70, 0.70), (0.82, 0.0, 0.0), "Object.002"), "ARM_RIGHT")
         self.assertEqual(classify_member_role("SOFA", (0.70, 0.65, 0.18), (0.0, 0.0, -0.35), "Object.003"), "SEAT")
 
+    def test_table_semantic_roles(self):
+        self.assertEqual(classify_member_role("TABLE", (0.90, 0.80, 0.10), (0.0, 0.0, 0.85), "table_top"), "TOP")
+        self.assertEqual(classify_member_role("TABLE", (0.12, 0.12, 0.75), (-0.80, -0.80, -0.05), "leg_fl"), "LEG")
+        self.assertEqual(classify_member_role("TABLE", (0.75, 0.12, 0.12), (0.0, -0.70, 0.45), "apron_front"), "APRON")
+
     def test_table_leg_and_top_behavior(self):
-        self.assertEqual(infer_member_rule("TABLE", "X", 0.12, 0.80, "leg_fl"), "MOVE")
-        self.assertEqual(infer_member_rule("TABLE", "Z", 0.12, 0.85, "top"), "MOVE")
-        self.assertEqual(infer_member_rule("TABLE", "Z", 0.75, 0.10, "leg"), "STRETCH")
+        self.assertEqual(infer_member_rule("TABLE", "X", 0.12, 0.80, "leg_fl", role="LEG"), "MOVE")
+        self.assertEqual(infer_member_rule("TABLE", "Z", 0.12, 0.85, "top", role="TOP"), "MOVE")
+        self.assertEqual(infer_member_rule("TABLE", "Z", 0.75, 0.10, "leg", role="LEG"), "STRETCH")
+        self.assertEqual(infer_member_rule("TABLE", "X", 0.90, 0.00, "top", role="TOP"), "STRETCH")
+
+    def test_door_semantic_roles(self):
+        self.assertEqual(classify_member_role("DOOR", (0.10, 0.15, 0.90), (-0.90, 0.0, 0.0), "left_jamb"), "FRAME_LEFT")
+        self.assertEqual(classify_member_role("DOOR", (0.10, 0.15, 0.90), (0.90, 0.0, 0.0), "right_jamb"), "FRAME_RIGHT")
+        self.assertEqual(classify_member_role("DOOR", (0.90, 0.15, 0.10), (0.0, 0.0, 0.90), "head"), "FRAME_HEAD")
+        self.assertEqual(classify_member_role("DOOR", (0.80, 0.10, 0.85), (0.0, 0.0, 0.0), "door_leaf"), "DOOR_LEAF")
+
+    def test_window_semantic_roles(self):
+        self.assertEqual(classify_member_role("WINDOW", (0.75, 0.08, 0.75), (0.0, 0.0, 0.0), "sash"), "WINDOW_SASH")
+        self.assertEqual(classify_member_role("WINDOW", (0.75, 0.03, 0.75), (0.0, 0.0, 0.0), "glass"), "GLASS")
+        self.assertEqual(classify_member_role("WINDOW", (0.08, 0.10, 0.80), (0.0, 0.0, 0.0), "mullion"), "MULLION")
 
     def test_openings_do_not_scale_depth(self):
-        self.assertEqual(infer_member_rule("DOOR", "Y", 0.90, 0.00, "panel"), "FIXED")
-        self.assertEqual(infer_member_rule("WINDOW", "Y", 0.90, 0.00, "glass"), "FIXED")
-        self.assertEqual(infer_member_rule("DOOR", "X", 0.90, 0.00, "panel"), "STRETCH")
+        self.assertEqual(infer_member_rule("DOOR", "Y", 0.90, 0.00, "panel", role="DOOR_LEAF"), "FIXED")
+        self.assertEqual(infer_member_rule("WINDOW", "Y", 0.90, 0.00, "glass", role="GLASS"), "FIXED")
+        self.assertEqual(infer_member_rule("DOOR", "X", 0.90, 0.00, "panel", role="DOOR_LEAF"), "STRETCH")
+        self.assertEqual(infer_member_rule("DOOR", "X", 0.10, 0.85, "left_jamb", role="FRAME_LEFT"), "MOVE")
+        self.assertEqual(infer_member_rule("DOOR", "Z", 0.90, 0.00, "left_jamb", role="FRAME_LEFT"), "STRETCH")
+
+    def test_class_axis_anchors(self):
+        self.assertEqual(get_family_type("TABLE")["axis_anchors"]["Z"], "MIN")
+        self.assertEqual(get_family_type("DOOR")["axis_anchors"]["Z"], "MIN")
+        self.assertEqual(get_family_type("SOFA")["axis_anchors"]["X"], "CENTER")
+        self.assertEqual(get_family_type("STAIR")["axis_anchors"]["Y"], "MIN")
 
     def test_stair_is_width_only_in_v02(self):
         self.assertEqual(infer_member_rule("STAIR", "X", 0.90, 0.00, "tread"), "STRETCH")
