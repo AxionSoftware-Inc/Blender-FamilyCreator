@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import bpy
@@ -90,9 +91,8 @@ def _remove_owned_datablocks(datablocks):
     try:
         bpy.data.batch_remove(ids=removable)
     except Exception:
-        # Safety beats aggressive cleanup. If Blender cannot batch-remove a
-        # tracked datablock type, leave it orphaned rather than touching any
-        # unrelated user data.
+        # Safety beats aggressive cleanup. Leave tracked orphans rather than
+        # touching unrelated user data when a Blender build rejects batch_remove.
         pass
 
 
@@ -129,6 +129,14 @@ def convert_asset(context, filepath, output_directory, family_kind, export_glb=T
         _cleanup_import(imported, root=root, owned_datablocks=owned_datablocks)
 
 
+def _write_batch_report(output_directory, report):
+    output_directory = Path(output_directory)
+    output_directory.mkdir(parents=True, exist_ok=True)
+    report_path = output_directory / "batch-report.json"
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    return report_path
+
+
 def batch_convert_directory(
     context,
     input_directory,
@@ -158,14 +166,30 @@ def batch_convert_directory(
         except Exception as exc:
             errors.append({"source": str(filepath), "error": str(exc)})
             if not continue_on_error:
+                report = {
+                    "family_kind": family_kind,
+                    "input_directory": str(input_directory),
+                    "output_directory": str(output_directory),
+                    "discovered": len(assets),
+                    "converted": len(results),
+                    "failed": len(errors),
+                    "results": results,
+                    "errors": errors,
+                    "aborted": True,
+                }
+                report["report_path"] = str(_write_batch_report(output_directory, report))
                 raise
 
-    return {
+    report = {
         "family_kind": family_kind,
         "input_directory": str(input_directory),
         "output_directory": str(output_directory),
+        "discovered": len(assets),
         "converted": len(results),
         "failed": len(errors),
         "results": results,
         "errors": errors,
+        "aborted": False,
     }
+    report["report_path"] = str(_write_batch_report(output_directory, report))
+    return report
