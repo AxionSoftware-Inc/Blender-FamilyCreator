@@ -2,6 +2,21 @@ import bpy
 from mathutils import Matrix, Vector
 
 from .. import core
+from ..family_types.parameter_specs import property_name
+
+
+def semantic_float(root, name, fallback=0.0):
+    try:
+        return float(root.get(property_name(name), fallback))
+    except (TypeError, ValueError):
+        return float(fallback)
+
+
+def semantic_int(root, name, fallback=0):
+    try:
+        return int(root.get(property_name(name), fallback))
+    except (TypeError, ValueError):
+        return int(fallback)
 
 
 def role_members(root, roles, include_generated=False, include_templates=True):
@@ -149,6 +164,38 @@ def resize_family_axis(root, obj, axis, target_span):
     result.translation = loc
     obj.matrix_world = root.matrix_world @ result
     core.analyze_member(root, obj)
+
+
+def resize_family_axis_anchored(root, obj, axis, target_span, anchor="CENTER"):
+    index = {"X": 0, "Y": 1, "Z": 2}[axis]
+    mins_before, maxs_before = core.local_bbox(obj, root)
+    if anchor == "MIN":
+        anchor_before = float(mins_before[index])
+    elif anchor == "MAX":
+        anchor_before = float(maxs_before[index])
+    else:
+        anchor_before = float((mins_before[index] + maxs_before[index]) * 0.5)
+
+    resize_family_axis(root, obj, axis, target_span)
+
+    mins_after, maxs_after = core.local_bbox(obj, root)
+    if anchor == "MIN":
+        anchor_after = float(mins_after[index])
+    elif anchor == "MAX":
+        anchor_after = float(maxs_after[index])
+    else:
+        anchor_after = float((mins_after[index] + maxs_after[index]) * 0.5)
+
+    center = local_center(obj, root)
+    set_family_local_location(root, obj, axis, float(center[index]) + anchor_before - anchor_after)
+
+
+def move_surface_to(root, obj, axis, surface, target):
+    index = {"X": 0, "Y": 1, "Z": 2}[axis]
+    mins, maxs = core.local_bbox(obj, root)
+    current = float(mins[index]) if surface == "MIN" else float(maxs[index])
+    center = local_center(obj, root)
+    set_family_local_location(root, obj, axis, float(center[index]) + float(target) - current)
 
 
 def evenly_spaced_centers(count, minimum, maximum):
