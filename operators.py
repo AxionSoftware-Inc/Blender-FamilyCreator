@@ -3,10 +3,10 @@ from bpy.types import Operator
 
 from .core import (
     add_custom_parameter,
-    analyze_member,
     apply_family,
     apply_type,
     bind_parameter,
+    capture_family,
     create_family,
     delete_type,
     export_family,
@@ -48,9 +48,15 @@ class BFC_OT_smart_analyze(Operator):
         if not root:
             self.report({"ERROR"}, "Select a Family Creator family or one of its members")
             return {"CANCELLED"}
-        for obj in root.children_recursive:
-            if obj.type in {"MESH", "CURVE", "SURFACE", "FONT", "META"}:
-                analyze_member(root, obj)
+
+        current = (root.bfc_width, root.bfc_depth, root.bfc_height)
+        reset_family(root)
+        capture_family(root)
+        root["bfc_applying"] = True
+        try:
+            root.bfc_width, root.bfc_depth, root.bfc_height = current
+        finally:
+            root["bfc_applying"] = False
         apply_family(root)
         self.report({"INFO"}, "Stretch / Move / Fixed rules regenerated")
         return {"FINISHED"}
