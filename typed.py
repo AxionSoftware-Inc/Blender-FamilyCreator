@@ -9,7 +9,7 @@ def family_profile(root):
 
 
 def capture_typed_family(root):
-    """Capture base transforms and assign rules using the selected family type."""
+    """Capture base transforms and assign rules using the selected family class."""
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     family_dims = (
         max(abs(root.bfc_base_width), 1e-9),
@@ -20,7 +20,6 @@ def capture_typed_family(root):
     root["bfc_applying"] = True
     try:
         for obj in core.family_members(root):
-            # Reuse the generic capture to store stable base transforms/bounds.
             core.analyze_member(root, obj)
 
             mins, maxs = core.local_bbox(obj, root)
@@ -74,7 +73,9 @@ def typed_manifest_metadata(root):
             "group": spec["group"],
             "category": spec["category"],
             "strategy": spec["strategy"],
+            "logicModule": spec["logic_module"],
             "editableAxes": list(spec.get("editable_axes", ())),
+            "axisParameters": dict(spec.get("axis_parameters", {})),
             "parameters": list(spec.get("parameters", ())),
         },
     }
