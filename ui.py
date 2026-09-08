@@ -5,6 +5,10 @@ from .core import family_root, read_custom_parameters, read_types
 from .family_types import get_family_type
 
 
+def _pretty_parameter(name):
+    return (name or "").replace("_", " ").title()
+
+
 class BFC_PT_main(Panel):
     bl_label = "Family Creator"
     bl_idname = "BFC_PT_main"
@@ -35,24 +39,25 @@ class BFC_PT_main(Panel):
         header.prop(root, "bfc_family_kind")
         spec = get_family_type(root.bfc_family_kind)
         header.label(text=f"Group: {spec['group']}  |  Category: {spec['category']}")
-        header.label(text=f"Strategy: {spec['strategy']}")
+        header.label(text=f"Logic: {spec['logic_module'].split('.')[-1]}.py")
         header.label(text=spec["description"])
         header.operator("bfc.apply_family_class", icon="FILE_REFRESH")
         header.label(text="Change class, then Apply Family Class Logic.")
 
         editable = set(spec.get("editable_axes", ()))
+        axis_parameters = spec.get("axis_parameters", {})
         dims = layout.box()
-        dims.label(text="Dimensions", icon="ARROW_LEFTRIGHT")
+        dims.label(text="Class Dimensions", icon="ARROW_LEFTRIGHT")
         row = dims.row()
         row.enabled = "X" in editable
-        row.prop(root, "bfc_width")
+        row.prop(root, "bfc_width", text=_pretty_parameter(axis_parameters.get("X", "width")))
         row = dims.row()
         row.enabled = "Y" in editable
-        row.prop(root, "bfc_depth")
+        row.prop(root, "bfc_depth", text=_pretty_parameter(axis_parameters.get("Y", "depth")))
         row = dims.row()
         row.enabled = "Z" in editable
-        row.prop(root, "bfc_height")
-        dims.label(text="Profile axes: " + (", ".join(sorted(editable)) if editable else "fixed proportions"))
+        row.prop(root, "bfc_height", text=_pretty_parameter(axis_parameters.get("Z", "height")))
+        dims.label(text="Enabled axes: " + (", ".join(sorted(editable)) if editable else "fixed proportions"))
         row = dims.row(align=True)
         row.operator("bfc.reset_family", icon="LOOP_BACK")
         row.operator("bfc.smart_analyze", icon="MODIFIER")
@@ -61,7 +66,7 @@ class BFC_PT_main(Panel):
         params_info.label(text="Semantic Class Parameters", icon="PROPERTIES")
         params_info.label(text="Contract for class-specific geometry modules:")
         for parameter in spec.get("parameters", ()):
-            params_info.label(text=parameter)
+            params_info.label(text=_pretty_parameter(parameter))
 
         types_box = layout.box()
         types_box.label(text="Size / Variant Types", icon="PRESET")
