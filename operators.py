@@ -1,6 +1,7 @@
 import bpy
 from bpy.types import Operator
 
+from .batch import batch_convert_directory
 from .core import (
     add_custom_parameter,
     apply_family,
@@ -258,6 +259,45 @@ class BFC_OT_export_family(Operator):
         return {"FINISHED"}
 
 
+class BFC_OT_batch_convert(Operator):
+    bl_idname = "bfc.batch_convert"
+    bl_label = "Build Family Library"
+    bl_description = "Convert every supported model in the selected folder using one exact Family Class"
+
+    def execute(self, context):
+        scene = context.scene
+        raw_input = scene.bfc_batch_input_directory.strip()
+        raw_output = scene.bfc_batch_output_directory.strip()
+        if not raw_input or not raw_output:
+            self.report({"ERROR"}, "Choose both Asset Folder and Library Output")
+            return {"CANCELLED"}
+
+        input_directory = bpy.path.abspath(raw_input)
+        output_directory = bpy.path.abspath(raw_output)
+        try:
+            report = batch_convert_directory(
+                context,
+                input_directory,
+                output_directory,
+                scene.bfc_batch_family_kind,
+                recursive=scene.bfc_batch_recursive,
+                export_glb=scene.bfc_batch_export_glb,
+                continue_on_error=scene.bfc_batch_continue_on_error,
+            )
+        except Exception as exc:
+            scene.bfc_batch_last_result = f"Batch failed: {exc}"
+            self.report({"ERROR"}, scene.bfc_batch_last_result)
+            return {"CANCELLED"}
+
+        scene.bfc_batch_last_result = (
+            f"{report['converted']} converted / {report['failed']} failed / "
+            f"{report['discovered']} discovered"
+        )
+        message_type = {"WARNING"} if report["failed"] else {"INFO"}
+        self.report(message_type, scene.bfc_batch_last_result)
+        return {"FINISHED"}
+
+
 CLASSES = (
     BFC_OT_create_family,
     BFC_OT_apply_family_class,
@@ -270,4 +310,5 @@ CLASSES = (
     BFC_OT_add_parameter,
     BFC_OT_bind_parameter,
     BFC_OT_export_family,
+    BFC_OT_batch_convert,
 )
