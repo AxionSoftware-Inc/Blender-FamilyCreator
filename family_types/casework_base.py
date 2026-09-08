@@ -16,6 +16,16 @@ ROLE_TOE_KICK = "TOE_KICK"
 ROLE_CARCASS = "CARCASS"
 
 
+def _median(values):
+    values = sorted(float(v) for v in values if float(v) > 0.0)
+    if not values:
+        return None
+    middle = len(values) // 2
+    if len(values) % 2:
+        return values[middle]
+    return (values[middle - 1] + values[middle]) * 0.5
+
+
 def classify_role(spans, centers, name=""):
     sx, sy, sz = spans
     cx, cy, cz = centers
@@ -43,25 +53,51 @@ def classify_role(spans, centers, name=""):
     if name_has(name, "bottom", "base_panel", "floor_panel"):
         return ROLE_BOTTOM
 
-    # Geometry fallback. Thin vertical panels at X edges are side panels.
     if sx <= 0.18 and sy >= 0.45 and sz >= 0.55 and abs(cx) >= 0.55:
         return ROLE_SIDE_LEFT if cx < 0.0 else ROLE_SIDE_RIGHT
-    # Thin horizontal panels at top/bottom.
     if sz <= 0.16 and sx >= 0.55 and sy >= 0.40:
         if cz >= 0.55:
             return ROLE_TOP
         if cz <= -0.55:
             return ROLE_BOTTOM
         return ROLE_SHELF
-    # Thin rear panel spanning width/height.
     if sy <= 0.16 and sx >= 0.55 and sz >= 0.55 and abs(cy) >= 0.50:
         return ROLE_BACK
-    # Front leaves/drawer fronts are shallow in Y and live near the front.
     if sy <= 0.18 and sx >= 0.25 and sz >= 0.18 and abs(cy) >= 0.45:
         return ROLE_DOOR
     if sx >= 0.55 or sy >= 0.55 or sz >= 0.55:
         return ROLE_CARCASS
     return ROLE_UNKNOWN
+
+
+def infer_semantic_parameters(members, family_dims):
+    thicknesses = []
+    shelves = 0
+    toe_kicks = []
+
+    for member in members:
+        role = member.get("role")
+        span = member.get("span", (0.0, 0.0, 0.0))
+        if role in {ROLE_SIDE_LEFT, ROLE_SIDE_RIGHT}:
+            thicknesses.append(abs(float(span[0])))
+        elif role in {ROLE_TOP, ROLE_BOTTOM, ROLE_SHELF}:
+            thicknesses.append(abs(float(span[2])))
+            if role == ROLE_SHELF:
+                shelves += 1
+        elif role == ROLE_BACK:
+            thicknesses.append(abs(float(span[1])))
+        elif role == ROLE_TOE_KICK:
+            toe_kicks.append(abs(float(span[2])))
+
+    values = {}
+    panel_thickness = _median(thicknesses)
+    if panel_thickness is not None:
+        values["panel_thickness"] = panel_thickness
+    if shelves:
+        values["shelf_count"] = shelves
+    if toe_kicks:
+        values["toe_kick_height"] = max(toe_kicks)
+    return values
 
 
 def infer_rule(axis, span_ratio, center_ratio, name="", editable_axes=("X", "Y", "Z"), role=None):
