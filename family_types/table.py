@@ -24,7 +24,6 @@ def classify_role(spans, centers, name=""):
     if name_has(name, "decor", "cap", "plug"):
         return ROLE_DECOR
 
-    # Geometry-only fallback for downloaded assets with generic object names.
     if sz <= 0.18 and sx >= 0.60 and sy >= 0.45 and cz >= 0.35:
         return ROLE_TOP
     if sx <= 0.22 and sy <= 0.22 and sz >= 0.50:
@@ -34,6 +33,14 @@ def classify_role(spans, centers, name=""):
     if (sx >= 0.45 or sy >= 0.45) and sz <= 0.30:
         return ROLE_SUPPORT
     return ROLE_UNKNOWN
+
+
+def infer_semantic_parameters(members, family_dims):
+    tops = [member for member in members if member.get("role") == ROLE_TOP]
+    if not tops:
+        return {}
+    thicknesses = [abs(float(member["span"][2])) for member in tops]
+    return {"top_thickness": sum(thicknesses) / len(thicknesses)}
 
 
 def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
@@ -60,7 +67,6 @@ def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
     if role == ROLE_DECOR:
         return "MOVE"
 
-    # Fallback keeps compatibility with existing assets before role analysis.
     if axis in {"X", "Y"}:
         if name_has(name, "leg", "foot", "post") or edge_member(span_ratio, center_ratio):
             return "MOVE"
