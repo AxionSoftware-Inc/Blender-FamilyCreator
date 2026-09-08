@@ -9,6 +9,7 @@ from .family_types.strategies import (
     infer_semantic_parameters,
 )
 from .generators import rebuild_family_geometry, supports_generation
+from .quality import validate_family
 
 
 def family_profile(root):
@@ -217,6 +218,7 @@ def typed_manifest_metadata(root):
     return {
         "familyKind": type_id,
         "semanticParameters": semantic_parameter_values(root, type_id),
+        "quality": validate_family(root),
         "generator": {
             "supported": supports_generation(type_id),
             "revision": int(root.get("bfc_generator_revision", 0)),
