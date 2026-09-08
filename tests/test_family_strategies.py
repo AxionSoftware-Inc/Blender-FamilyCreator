@@ -1,6 +1,7 @@
 import unittest
 
 from family_types.registry import get_family_type
+from family_types.stair import solve_parameters as solve_stair_parameters
 from family_types.strategies import classify_member_role, infer_member_rule
 
 
@@ -37,6 +38,28 @@ class FamilyStrategyTests(unittest.TestCase):
         self.assertEqual(infer_member_rule("TABLE", "Z", 0.75, 0.10, "leg", role="LEG"), "STRETCH")
         self.assertEqual(infer_member_rule("TABLE", "X", 0.90, 0.00, "top", role="TOP"), "STRETCH")
 
+    def test_chair_roles(self):
+        self.assertEqual(classify_member_role("CHAIR", (0.65, 0.60, 0.15), (0.0, 0.0, 0.0), "seat"), "SEAT")
+        self.assertEqual(classify_member_role("CHAIR", (0.10, 0.10, 0.70), (-0.75, -0.70, -0.10), "leg_fl"), "LEG")
+        self.assertEqual(classify_member_role("CHAIR", (0.60, 0.15, 0.60), (0.0, 0.65, 0.40), "backrest"), "BACK")
+        self.assertEqual(infer_member_rule("CHAIR", "Z", 0.70, 0.00, "leg", role="LEG"), "STRETCH")
+        self.assertEqual(infer_member_rule("CHAIR", "Z", 0.15, 0.00, "seat", role="SEAT"), "MOVE")
+
+    def test_bed_roles(self):
+        self.assertEqual(classify_member_role("BED", (0.85, 0.85, 0.20), (0.0, 0.0, 0.20), "mattress"), "MATTRESS")
+        self.assertEqual(classify_member_role("BED", (0.80, 0.12, 0.65), (0.0, 0.85, 0.20), "headboard"), "HEADBOARD")
+        self.assertEqual(infer_member_rule("BED", "X", 0.80, 0.00, "headboard", role="HEADBOARD"), "STRETCH")
+        self.assertEqual(infer_member_rule("BED", "Y", 0.12, 0.85, "headboard", role="HEADBOARD"), "MOVE")
+
+    def test_casework_roles(self):
+        self.assertEqual(classify_member_role("CABINET", (0.10, 0.80, 0.85), (-0.85, 0.0, 0.0), "left_side_panel"), "SIDE_LEFT")
+        self.assertEqual(classify_member_role("CABINET", (0.10, 0.80, 0.85), (0.85, 0.0, 0.0), "right_side_panel"), "SIDE_RIGHT")
+        self.assertEqual(classify_member_role("CABINET", (0.85, 0.80, 0.10), (0.0, 0.0, 0.85), "top"), "TOP")
+        self.assertEqual(classify_member_role("CABINET", (0.85, 0.10, 0.85), (0.0, -0.85, 0.0), "back"), "BACK")
+        self.assertEqual(infer_member_rule("CABINET", "X", 0.10, 0.85, "left_side", role="SIDE_LEFT"), "MOVE")
+        self.assertEqual(infer_member_rule("CABINET", "Z", 0.85, 0.00, "left_side", role="SIDE_LEFT"), "STRETCH")
+        self.assertEqual(infer_member_rule("KITCHEN_BASE", "Z", 0.85, 0.00, "left_side", role="SIDE_LEFT"), "FIXED")
+
     def test_door_semantic_roles(self):
         self.assertEqual(classify_member_role("DOOR", (0.10, 0.15, 0.90), (-0.90, 0.0, 0.0), "left_jamb"), "FRAME_LEFT")
         self.assertEqual(classify_member_role("DOOR", (0.10, 0.15, 0.90), (0.90, 0.0, 0.0), "right_jamb"), "FRAME_RIGHT")
@@ -61,10 +84,29 @@ class FamilyStrategyTests(unittest.TestCase):
         self.assertEqual(get_family_type("SOFA")["axis_anchors"]["X"], "CENTER")
         self.assertEqual(get_family_type("STAIR")["axis_anchors"]["Y"], "MIN")
 
-    def test_stair_is_width_only_in_v02(self):
-        self.assertEqual(infer_member_rule("STAIR", "X", 0.90, 0.00, "tread"), "STRETCH")
-        self.assertEqual(infer_member_rule("STAIR", "Y", 0.90, 0.00, "tread"), "FIXED")
-        self.assertEqual(infer_member_rule("STAIR", "Z", 0.90, 0.00, "riser"), "FIXED")
+    def test_stair_is_width_only_for_imported_geometry(self):
+        self.assertEqual(infer_member_rule("STAIR", "X", 0.90, 0.00, "tread", role="TREAD"), "STRETCH")
+        self.assertEqual(infer_member_rule("STAIR", "Y", 0.90, 0.00, "tread", role="TREAD"), "FIXED")
+        self.assertEqual(infer_member_rule("STAIR", "Z", 0.90, 0.00, "riser", role="RISER"), "FIXED")
+
+    def test_stair_parameter_solver(self):
+        solved = solve_stair_parameters(
+            step_count=10,
+            tread_depth=0.28,
+            riser_height=0.17,
+        )
+        self.assertEqual(solved["step_count"], 10)
+        self.assertAlmostEqual(solved["total_run"], 2.8)
+        self.assertAlmostEqual(solved["total_rise"], 1.7)
+
+        solved = solve_stair_parameters(
+            total_run=3.0,
+            total_rise=1.8,
+            target_riser_height=0.18,
+        )
+        self.assertEqual(solved["step_count"], 10)
+        self.assertAlmostEqual(solved["tread_depth"], 0.30)
+        self.assertAlmostEqual(solved["riser_height"], 0.18)
 
     def test_fixed_fixture(self):
         for axis in ("X", "Y", "Z"):
