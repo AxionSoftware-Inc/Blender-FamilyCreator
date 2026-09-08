@@ -12,6 +12,7 @@ from .core import (
 from .family_types import get_family_type
 from .family_types.parameter_specs import get_parameter_specs, property_name
 from .generators import supports_generation
+from .quality import validate_family
 from .typed import ensure_semantic_parameters
 
 
@@ -38,6 +39,20 @@ def _draw_batch_factory(layout, scene):
     batch.label(text="Supports .blend, .fbx, .glb, .gltf and .obj")
     if scene.bfc_batch_last_result:
         batch.label(text=scene.bfc_batch_last_result, icon="INFO")
+
+
+def _draw_quality(layout, root):
+    quality = validate_family(root)
+    box = layout.box()
+    icon = "CHECKMARK" if quality["ready"] else "ERROR"
+    box.label(text=f"Family Quality — {quality['score']}/100", icon=icon)
+    box.label(text=f"Semantic role coverage: {quality['roleCoverage']:.0%}")
+    if quality["ready"]:
+        box.label(text="Required class roles detected; ready for library review.")
+    for warning in quality.get("warnings", ()):
+        box.label(text=warning, icon="INFO")
+    for error in quality.get("errors", ()):
+        box.label(text=error, icon="ERROR")
 
 
 def _draw_generator(layout, root):
@@ -95,6 +110,8 @@ class BFC_PT_main(Panel):
         header.label(text=spec["description"])
         header.operator("bfc.apply_family_class", icon="FILE_REFRESH")
         header.label(text="Change class, then Apply Family Class Logic.")
+
+        _draw_quality(layout, root)
 
         editable = set(spec.get("editable_axes", ()))
         axis_parameters = spec.get("axis_parameters", {})
