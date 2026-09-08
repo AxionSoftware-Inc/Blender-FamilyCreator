@@ -20,6 +20,18 @@ def _pretty_parameter(name):
     return (name or "").replace("_", " ").title()
 
 
+def _draw_prepare(layout, scene):
+    box = layout.box()
+    box.label(text="Auto Prepare", icon="MESH_DATA")
+    box.label(text="Split manageable disconnected mesh islands before semantic analysis.")
+    row = box.row(align=True)
+    row.prop(scene, "bfc_prepare_max_islands")
+    row.operator("bfc.prepare_selection", icon="MOD_EXPLODE")
+    box.label(text="Shape-key, armature and very fragmented meshes are left untouched.")
+    if scene.bfc_prepare_last_result:
+        box.label(text=scene.bfc_prepare_last_result, icon="INFO")
+
+
 def _draw_batch_factory(layout, scene):
     batch = layout.box()
     batch.label(text="Batch Family Factory", icon="FILE_FOLDER")
@@ -34,6 +46,9 @@ def _draw_batch_factory(layout, scene):
     row = batch.row(align=True)
     row.prop(scene, "bfc_batch_recursive")
     row.prop(scene, "bfc_batch_export_glb")
+    batch.prop(scene, "bfc_batch_auto_split_loose")
+    if scene.bfc_batch_auto_split_loose:
+        batch.prop(scene, "bfc_prepare_max_islands")
     batch.prop(scene, "bfc_batch_continue_on_error")
     batch.operator("bfc.batch_convert", icon="EXPORT")
     batch.label(text="Supports .blend, .fbx, .glb, .gltf and .obj")
@@ -96,8 +111,9 @@ class BFC_PT_main(Panel):
             spec = get_family_type(scene.bfc_new_family_kind)
             box.label(text=spec["description"])
             box.label(text="Parameters: " + ", ".join(spec["parameters"][:5]))
-            box.operator("bfc.create_family", icon="ADD")
             box.label(text="Select all parts of one asset first.")
+            _draw_prepare(layout, scene)
+            box.operator("bfc.create_family", icon="ADD")
             _draw_batch_factory(layout, scene)
             return
 
