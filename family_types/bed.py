@@ -43,6 +43,14 @@ def classify_role(spans, centers, name=""):
     return ROLE_UNKNOWN
 
 
+def infer_semantic_parameters(members, family_dims):
+    mattresses = [member for member in members if member.get("role") == ROLE_MATTRESS]
+    if not mattresses:
+        return {}
+    heights = [abs(float(member["span"][2])) for member in mattresses]
+    return {"mattress_height": sum(heights) / len(heights)}
+
+
 def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
     if axis not in {"X", "Y"}:
         return "FIXED"
