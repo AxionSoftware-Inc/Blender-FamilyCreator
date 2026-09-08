@@ -7,6 +7,7 @@ import bpy
 from . import core
 from .core import SUPPORTED_TYPES
 from .generators import rebuild_family_geometry, supports_generation
+from .prepare import DEFAULT_MAX_LOOSE_ISLANDS, auto_prepare_objects
 from .quality import validate_family
 from .typed import create_typed_family, export_typed_family
 
@@ -137,6 +138,28 @@ def _cleanup_import(imported, root=None, owned_datablocks=None):
     _remove_owned_datablocks(owned_datablocks or set())
 
 
+def _prepare_imported(context, imported, auto_split_loose, max_loose_islands):
+    if not auto_split_loose:
+        return list(imported), {
+            "enabled": False,
+            "split_objects": 0,
+            "output_objects": len(imported),
+            "reports": [],
+        }
+
+    prepared = auto_prepare_objects(
+        context,
+        imported,
+        max_islands=max_loose_islands,
+    )
+    return prepared["objects"], {
+        "enabled": True,
+        "split_objects": prepared["split_objects"],
+        "output_objects": prepared["output_objects"],
+        "reports": prepared["reports"],
+    }
+
+
 def convert_asset(
     context,
     filepath,
@@ -144,14 +167,27 @@ def convert_asset(
     family_kind,
     export_glb=True,
     output_key=None,
+    auto_split_loose=True,
+    max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
 ):
     filepath = Path(filepath)
     imported = import_asset(filepath, context)
-    owned_datablocks = _collect_owned_datablocks(imported)
     root = None
+    owned_datablocks = set()
 
     try:
-        geometry = [obj for obj in imported if obj.type in SUPPORTED_TYPES]
+        prepared_objects, prepare_report = _prepare_imported(
+            context,
+            imported,
+            auto_split_loose=auto_split_loose,
+            max_loose_islands=max_loose_islands,
+        )
+        for obj in prepared_objects:
+            if obj not in imported:
+                imported.append(obj)
+
+        owned_datablocks = _collect_owned_datablocks(imported)
+        geometry = [obj for obj in prepared_objects if obj.type in SUPPORTED_TYPES]
         if not geometry:
             raise ValueError("No supported mesh/curve geometry found")
 
@@ -170,6 +206,7 @@ def convert_asset(
             "output_key": str(key),
             "family": filepath.stem,
             "family_kind": family_kind,
+            "prepare": prepare_report,
             "manifest": str(manifest),
             "glb": str(glb) if glb else None,
             "generator": generator_result,
@@ -197,6 +234,8 @@ def batch_convert_directory(
     recursive=True,
     export_glb=True,
     continue_on_error=True,
+    auto_split_loose=True,
+    max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
 ):
     input_directory = Path(input_directory)
     assets = discover_assets(input_directory, recursive=recursive)
@@ -216,6 +255,8 @@ def batch_convert_directory(
                     family_kind,
                     export_glb=export_glb,
                     output_key=output_keys[filepath],
+                    auto_split_loose=auto_split_loose,
+                    max_loose_islands=max_loose_islands,
                 )
             )
         except Exception as exc:
@@ -229,6 +270,8 @@ def batch_convert_directory(
                     "converted": len(results),
                     "failed": len(errors),
                     "needs_review": sum(1 for item in results if item.get("needs_review")),
+                    "auto_split_loose": auto_split_loose,
+                    "max_loose_islands": max_loose_islands,
                     "results": results,
                     "errors": errors,
                     "aborted": True,
@@ -244,6 +287,8 @@ def batch_convert_directory(
         "converted": len(results),
         "failed": len(errors),
         "needs_review": sum(1 for item in results if item.get("needs_review")),
+        "auto_split_loose": auto_split_loose,
+        "max_loose_islands": max_loose_islands,
         "results": results,
         "errors": errors,
         "aborted": False,
