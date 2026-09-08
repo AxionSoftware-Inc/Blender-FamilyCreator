@@ -152,7 +152,7 @@ AXIS_PARAMETERS = {
     "TABLE": {"X": "width", "Y": "depth", "Z": "height"},
     "CHAIR": {"X": "width", "Y": "depth", "Z": "height"},
     "BED": {"X": "width", "Y": "length", "Z": "height"},
-    "CABINET": {"X": "width", "Y": "depth", ""Z": "height"},
+    "CABINET": {"X": "width", "Y": "depth", "Z": "height"},
     "WARDROBE": {"X": "width", "Y": "depth", "Z": "height"},
     "SHELF": {"X": "width", "Y": "depth", "Z": "height"},
     "KITCHEN_BASE": {"X": "width", "Y": "depth", "Z": "height"},
