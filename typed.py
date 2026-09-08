@@ -8,6 +8,7 @@ from .family_types.strategies import (
     infer_member_rules,
     infer_semantic_parameters,
 )
+from .generators import rebuild_family_geometry, supports_generation
 
 
 def family_profile(root):
@@ -69,7 +70,6 @@ def apply_semantic_parameter_values(root, values, family_kind=None):
 
 
 def apply_inferred_semantic_parameter_values(root, values, family_kind=None):
-    """Apply analysis results only to parameters that are still Auto/zero."""
     family_kind = family_kind or getattr(root, "bfc_family_kind", "GENERIC")
     specs = ensure_semantic_parameters(root, family_kind)
     for parameter, value in (values or {}).items():
@@ -84,7 +84,7 @@ def apply_inferred_semantic_parameter_values(root, values, family_kind=None):
 
 
 def capture_typed_family(root):
-    """Capture base transforms, semantic roles, rules and auto parameters."""
+    """Capture source/template members, never generated copies."""
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     family_dims = (
         max(abs(root.bfc_base_width), 1e-9),
@@ -96,6 +96,9 @@ def capture_typed_family(root):
     root["bfc_applying"] = True
     try:
         for obj in core.family_members(root):
+            if bool(obj.get(core.GENERATED_FLAG, False)):
+                continue
+
             core.analyze_member(root, obj)
 
             mins, maxs = core.local_bbox(obj, root)
@@ -196,7 +199,10 @@ def apply_typed_type(root, name):
         root.bfc_type_name = name
     finally:
         root["bfc_applying"] = False
+
     core.apply_family(root)
+    if supports_generation(root.bfc_family_kind):
+        rebuild_family_geometry(root)
 
 
 def typed_manifest_metadata(root):
@@ -204,13 +210,17 @@ def typed_manifest_metadata(root):
     spec = get_family_type(type_id)
 
     role_counts = {}
-    for obj in core.family_members(root):
+    for obj in core.exportable_family_members(root):
         role = getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
         role_counts[role] = role_counts.get(role, 0) + 1
 
     return {
         "familyKind": type_id,
         "semanticParameters": semantic_parameter_values(root, type_id),
+        "generator": {
+            "supported": supports_generation(type_id),
+            "revision": int(root.get("bfc_generator_revision", 0)),
+        },
         "familyProfile": {
             "label": spec["label"],
             "group": spec["group"],
@@ -229,7 +239,7 @@ def typed_manifest_metadata(root):
 def _inject_member_roles(root, data):
     roles = {
         obj.name: (getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN")
-        for obj in core.family_members(root)
+        for obj in core.exportable_family_members(root)
     }
     for member in data.get("members", []):
         member["role"] = roles.get(member.get("name"), "UNKNOWN")
