@@ -61,9 +61,10 @@ def _can_split(obj, max_islands):
 
 def split_loose_object(context, obj, max_islands=DEFAULT_MAX_LOOSE_ISLANDS):
     eligible, islands, reason = _can_split(obj, max_islands)
+    source_name = obj.name
     if not eligible:
         return {
-            "source": obj.name,
+            "source": source_name,
             "split": False,
             "islands": islands,
             "reason": reason,
@@ -97,10 +98,10 @@ def split_loose_object(context, obj, max_islands=DEFAULT_MAX_LOOSE_ISLANDS):
         result = list(dict.fromkeys(result))
         result.sort(key=lambda item: item.name)
         for index, part in enumerate(result, start=1):
-            part.name = f"{obj.name}_Part_{index:02d}"
+            part.name = f"{source_name}_Part_{index:02d}"
 
         return {
-            "source": obj.name,
+            "source": source_name,
             "split": True,
             "islands": islands,
             "reason": "split_loose",
