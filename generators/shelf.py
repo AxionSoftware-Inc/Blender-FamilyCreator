@@ -1,5 +1,6 @@
 from .. import core
 from ..family_types.parameter_specs import property_name
+from .casework_base import apply_casework_parameters
 from .common import (
     choose_center_prototype,
     clear_generated,
@@ -36,9 +37,14 @@ def _vertical_bounds(root):
 
 
 def rebuild(root):
+    panel_result = apply_casework_parameters(root)
     clear_generated(root, GROUP)
     templates = prepare_template_group(root, {SHELF_ROLE}, GROUP)
     if not templates:
+        if panel_result["changed"]:
+            root["bfc_generator_revision"] = int(root.get("bfc_generator_revision", 0)) + 1
+            panel_result["message"] = f"Applied shelf casework geometry to {panel_result['affected']} member(s); no SHELF role found for repetition"
+            return panel_result
         return {
             "changed": False,
             "message": "SHELF generator needs at least one member classified as SHELF",
@@ -53,7 +59,7 @@ def rebuild(root):
     bottom, top = _vertical_bounds(root)
     if top <= bottom:
         unmark_templates(templates)
-        return {"changed": False, "message": "Invalid shelf interior height"}
+        return {"changed": panel_result["changed"], "message": "Invalid shelf interior height"}
 
     prototype = choose_center_prototype(templates, root, axis=2)
     gap = (top - bottom) / float(target_count + 1)
@@ -78,7 +84,9 @@ def rebuild(root):
     return {
         "changed": True,
         "generated": len(generated),
+        "affected": panel_result.get("affected", 0),
         "group": GROUP,
         "shelfCount": target_count,
-        "message": f"Generated {target_count} shelf levels",
+        "panelThickness": panel_result.get("panelThickness", 0.0),
+        "message": f"Generated {target_count} shelf levels and applied casework panel geometry",
     }
