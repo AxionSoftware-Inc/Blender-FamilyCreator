@@ -2,6 +2,7 @@ import bpy
 from bpy.types import Panel
 
 from .core import family_root, read_custom_parameters, read_types
+from .family_types import get_family_type
 
 
 class BFC_PT_main(Panel):
@@ -19,28 +20,44 @@ class BFC_PT_main(Panel):
 
         if not root:
             box = layout.box()
-            box.label(text="Convert Blender assets into BIM families", icon="OUTLINER_OB_GROUP_INSTANCE")
+            box.label(text="Create a typed BIM family", icon="OUTLINER_OB_GROUP_INSTANCE")
             box.prop(scene, "bfc_new_family_name")
+            box.prop(scene, "bfc_new_family_kind")
+            spec = get_family_type(scene.bfc_new_family_kind)
+            box.label(text=spec["description"])
+            box.label(text="Parameters: " + ", ".join(spec["parameters"][:5]))
             box.operator("bfc.create_family", icon="ADD")
             box.label(text="Select all parts of one asset first.")
             return
 
         header = layout.box()
         header.prop(root, "bfc_family_name")
-        header.prop(root, "bfc_category")
-        header.label(text=f"Active type: {root.bfc_type_name}")
+        header.prop(root, "bfc_family_kind")
+        spec = get_family_type(root.bfc_family_kind)
+        header.label(text=f"Group: {spec['group']}  |  Category: {spec['category']}")
+        header.label(text=f"Strategy: {spec['strategy']}")
+        header.label(text=spec["description"])
+        header.operator("bfc.apply_family_class", icon="FILE_REFRESH")
+        header.label(text="Change class, then Apply Family Class Logic.")
 
         dims = layout.box()
         dims.label(text="Dimensions", icon="ARROW_LEFTRIGHT")
         dims.prop(root, "bfc_width")
         dims.prop(root, "bfc_depth")
         dims.prop(root, "bfc_height")
+        editable = spec.get("editable_axes", ())
+        dims.label(text="Profile axes: " + (", ".join(editable) if editable else "fixed proportions"))
         row = dims.row(align=True)
         row.operator("bfc.reset_family", icon="LOOP_BACK")
         row.operator("bfc.smart_analyze", icon="MODIFIER")
 
+        params_info = layout.box()
+        params_info.label(text="Class Parameters", icon="PROPERTIES")
+        for parameter in spec.get("parameters", ()): 
+            params_info.label(text=parameter)
+
         types_box = layout.box()
-        types_box.label(text="Family Types", icon="PRESET")
+        types_box.label(text="Size / Variant Types", icon="PRESET")
         types_box.prop(scene, "bfc_type_query")
         row = types_box.row(align=True)
         row.operator("bfc.save_type", icon="FILE_TICK")
@@ -57,10 +74,11 @@ class BFC_PT_main(Panel):
             row.prop(active, "bfc_rule_x", text="X")
             row.prop(active, "bfc_rule_y", text="Y")
             row.prop(active, "bfc_rule_z", text="Z")
-            rules.label(text="Stretch = resize | Move = reposition | Fixed = preserve")
+            rules.label(text="Auto rules come from the selected family class.")
+            rules.label(text="Manual overrides remain possible per object.")
 
         params = layout.box()
-        params.label(text="Custom Parameters", icon="DRIVER")
+        params.label(text="Advanced Custom Parameters", icon="DRIVER")
         row = params.row(align=True)
         row.prop(scene, "bfc_param_name", text="Name")
         row.prop(scene, "bfc_param_default", text="Default")
