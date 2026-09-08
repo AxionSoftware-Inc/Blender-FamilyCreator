@@ -10,15 +10,13 @@ MEMBER_FLAG = "bfc_is_member"
 BASE_MATRIX = "bfc_base_matrix"
 BASE_BBOX_MIN = "bfc_base_bbox_min"
 BASE_BBOX_MAX = "bfc_base_bbox_max"
-RULE_X = "bfc_rule_x"
-RULE_Y = "bfc_rule_y"
-RULE_Z = "bfc_rule_z"
 TYPES_JSON = "bfc_types_json"
 CUSTOM_PARAMS_JSON = "bfc_custom_params_json"
 SCHEMA_VERSION = 1
 
 RULES = {"STRETCH", "MOVE", "FIXED"}
 AXES = ("X", "Y", "Z")
+SUPPORTED_TYPES = {"MESH", "CURVE", "SURFACE", "FONT", "META"}
 
 
 def slugify(value: str) -> str:
@@ -63,7 +61,7 @@ def object_bbox_world(obj):
 
 
 def objects_bbox_world(objects):
-    bounds = [object_bbox_world(obj) for obj in objects if hasattr(obj, "bound_box")]
+    bounds = [object_bbox_world(obj) for obj in objects]
     if not bounds:
         raise ValueError("No supported geometry in selection")
     mins = Vector((min(v[0].x for v in bounds), min(v[0].y for v in bounds), min(v[0].z for v in bounds)))
@@ -103,16 +101,20 @@ def analyze_member(root, obj):
         span_ratio = abs(span[index]) / family_size
         half = family_size * 0.5
         center_ratio = abs(center[index]) / half if half > 1e-9 else 0.0
-        obj[f"bfc_rule_{axis.lower()}"] = infer_rule(span_ratio, center_ratio)
+        setattr(obj, f"bfc_rule_{axis.lower()}", infer_rule(span_ratio, center_ratio))
 
 
 def capture_family(root):
-    for obj in family_members(root):
-        analyze_member(root, obj)
+    root["bfc_applying"] = True
+    try:
+        for obj in family_members(root):
+            analyze_member(root, obj)
+    finally:
+        root["bfc_applying"] = False
 
 
 def create_family(context, objects, name="Family"):
-    objects = [obj for obj in objects if obj.type in {"MESH", "CURVE", "SURFACE", "FONT", "META"}]
+    objects = [obj for obj in objects if obj.type in SUPPORTED_TYPES]
     if not objects:
         raise ValueError("Select at least one mesh/curve object")
 
@@ -127,6 +129,8 @@ def create_family(context, objects, name="Family"):
     context.collection.objects.link(root)
 
     root[FAMILY_FLAG] = True
+    root[TYPES_JSON] = "{}"
+    root[CUSTOM_PARAMS_JSON] = "{}"
     root.bfc_family_name = name
     root.bfc_category = "Generic Model"
     root.bfc_type_name = "Default"
@@ -136,14 +140,18 @@ def create_family(context, objects, name="Family"):
     root.bfc_width = root.bfc_base_width
     root.bfc_depth = root.bfc_base_depth
     root.bfc_height = root.bfc_base_height
-    root[TYPES_JSON] = "{}"
-    root[CUSTOM_PARAMS_JSON] = "{}"
 
+    selected_set = set(objects)
     for obj in objects:
-        world = obj.matrix_world.copy()
-        obj.parent = root
-        obj.matrix_world = world
         obj[MEMBER_FLAG] = True
+
+    # Preserve hierarchy inside imported assets. Only selected top-level objects
+    # are attached directly to the family root.
+    for obj in objects:
+        if obj.parent not in selected_set:
+            world = obj.matrix_world.copy()
+            obj.parent = root
+            obj.matrix_world = world
 
     capture_family(root)
     save_type(root, "Default", overwrite=True)
@@ -169,7 +177,7 @@ def apply_family(root):
             basis = base_matrix.copy()
             basis.translation = Vector((0.0, 0.0, 0.0))
 
-            rules = [str(obj.get(RULE_X, "FIXED")), str(obj.get(RULE_Y, "FIXED")), str(obj.get(RULE_Z, "FIXED"))]
+            rules = [obj.bfc_rule_x, obj.bfc_rule_y, obj.bfc_rule_z]
             rules = [rule if rule in RULES else "FIXED" for rule in rules]
 
             new_loc = base_loc.copy()
@@ -183,7 +191,7 @@ def apply_family(root):
             stretch_matrix = Matrix.Diagonal(Vector((stretch[0], stretch[1], stretch[2], 1.0)))
             new_matrix = stretch_matrix @ basis
             new_matrix.translation = new_loc
-            obj.matrix_local = new_matrix
+            obj.matrix_world = root.matrix_world @ new_matrix
     finally:
         root["bfc_applying"] = False
 
@@ -249,7 +257,12 @@ def add_custom_parameter(root, name, default_value=0.0):
     root[prop_name] = float(default_value)
     root.id_properties_ui(prop_name).update(description=f"Family parameter: {name}")
     params = read_custom_parameters(root)
-    params[slug] = {"name": name, "property": prop_name, "default": float(default_value), "bindings": []}
+    params[slug] = {
+        "name": name,
+        "property": prop_name,
+        "default": float(default_value),
+        "bindings": params.get(slug, {}).get("bindings", []),
+    }
     root[CUSTOM_PARAMS_JSON] = json.dumps(params, ensure_ascii=False, sort_keys=True)
     return slug, prop_name
 
@@ -268,10 +281,7 @@ def bind_parameter(root, slug, target, data_path, index=-1, expression="p"):
         raise ValueError(f"Unknown parameter '{slug}'")
     prop_name = params[slug]["property"]
 
-    if index >= 0:
-        fcurve = target.driver_add(data_path, index)
-    else:
-        fcurve = target.driver_add(data_path)
+    fcurve = target.driver_add(data_path, index) if index >= 0 else target.driver_add(data_path)
     driver = fcurve.driver
     driver.type = "SCRIPTED"
     driver.expression = expression or "p"
@@ -283,7 +293,7 @@ def bind_parameter(root, slug, target, data_path, index=-1, expression="p"):
 
     params[slug].setdefault("bindings", []).append({
         "target": target.name,
-        "data_path": data_path,
+        "dataPath": data_path,
         "index": int(index),
         "expression": expression or "p",
     })
@@ -297,9 +307,9 @@ def family_manifest(root):
             "name": obj.name,
             "type": obj.type,
             "rules": {
-                "x": obj.get(RULE_X, "FIXED"),
-                "y": obj.get(RULE_Y, "FIXED"),
-                "z": obj.get(RULE_Z, "FIXED"),
+                "x": obj.bfc_rule_x,
+                "y": obj.bfc_rule_y,
+                "z": obj.bfc_rule_z,
             },
         })
     return {
@@ -330,19 +340,25 @@ def export_family(root, directory, export_glb=True):
     family_id = slugify(root.bfc_family_name)
 
     manifest_path = directory / f"{family_id}.family.json"
-    manifest_path.write_text(json.dumps(family_manifest(root), indent=2, ensure_ascii=False), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(family_manifest(root), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     glb_path = None
     if export_glb:
         glb_path = directory / f"{family_id}.glb"
         members = family_members(root)
+        if not members:
+            raise ValueError("Family has no exportable members")
+
         previous_selection = list(bpy.context.selected_objects)
         previous_active = bpy.context.view_layer.objects.active
         try:
             bpy.ops.object.select_all(action="DESELECT")
             for obj in members:
                 obj.select_set(True)
-            bpy.context.view_layer.objects.active = members[0] if members else None
+            bpy.context.view_layer.objects.active = members[0]
             bpy.ops.export_scene.gltf(
                 filepath=str(glb_path),
                 export_format="GLB",
