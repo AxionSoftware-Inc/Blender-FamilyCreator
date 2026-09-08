@@ -7,12 +7,15 @@ from mathutils import Matrix, Vector
 
 FAMILY_FLAG = "bfc_is_family"
 MEMBER_FLAG = "bfc_is_member"
+TEMPLATE_FLAG = "bfc_is_template"
+GENERATED_FLAG = "bfc_is_generated"
+GENERATOR_GROUP = "bfc_generator_group"
 BASE_MATRIX = "bfc_base_matrix"
 BASE_BBOX_MIN = "bfc_base_bbox_min"
 BASE_BBOX_MAX = "bfc_base_bbox_max"
 TYPES_JSON = "bfc_types_json"
 CUSTOM_PARAMS_JSON = "bfc_custom_params_json"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 RULES = {"STRETCH", "MOVE", "FIXED"}
 AXES = ("X", "Y", "Z")
@@ -47,10 +50,21 @@ def family_root(obj):
     return None
 
 
-def family_members(root):
+def family_members(root, include_templates=True):
     if not root:
         return []
-    return [obj for obj in root.children_recursive if bool(obj.get(MEMBER_FLAG, False))]
+    members = [obj for obj in root.children_recursive if bool(obj.get(MEMBER_FLAG, False))]
+    if include_templates:
+        return members
+    return [obj for obj in members if not bool(obj.get(TEMPLATE_FLAG, False))]
+
+
+def exportable_family_members(root):
+    return [
+        obj
+        for obj in family_members(root, include_templates=False)
+        if not bool(obj.get("bfc_exclude_export", False))
+    ]
 
 
 def object_bbox_world(obj):
@@ -145,8 +159,6 @@ def create_family(context, objects, name="Family"):
     for obj in objects:
         obj[MEMBER_FLAG] = True
 
-    # Preserve hierarchy inside imported assets. Only selected top-level objects
-    # are attached directly to the family root.
     for obj in objects:
         if obj.parent not in selected_set:
             world = obj.matrix_world.copy()
@@ -184,7 +196,6 @@ def _anchor_coordinate(base_size, anchor_mode):
 
 
 def anchored_coordinate(value, base_size, ratio, anchor_mode="CENTER"):
-    """Scale one family-space coordinate around a semantic class anchor."""
     anchor = _anchor_coordinate(base_size, anchor_mode)
     return anchor + (float(value) - anchor) * float(ratio)
 
@@ -335,16 +346,27 @@ def bind_parameter(root, slug, target, data_path, index=-1, expression="p"):
 
 def family_manifest(root):
     members = []
-    for obj in family_members(root):
+    for obj in exportable_family_members(root):
         members.append({
             "name": obj.name,
             "type": obj.type,
+            "generated": bool(obj.get(GENERATED_FLAG, False)),
+            "generatorGroup": obj.get(GENERATOR_GROUP, ""),
             "rules": {
                 "x": obj.bfc_rule_x,
                 "y": obj.bfc_rule_y,
                 "z": obj.bfc_rule_z,
             },
         })
+    templates = [
+        {
+            "name": obj.name,
+            "role": getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN",
+            "generatorGroup": obj.get(GENERATOR_GROUP, ""),
+        }
+        for obj in family_members(root)
+        if bool(obj.get(TEMPLATE_FLAG, False))
+    ]
     return {
         "schema": "axion.family",
         "schemaVersion": SCHEMA_VERSION,
@@ -364,6 +386,7 @@ def family_manifest(root):
         "types": read_types(root),
         "customParameters": read_custom_parameters(root),
         "members": members,
+        "templates": templates,
     }
 
 
@@ -381,7 +404,7 @@ def export_family(root, directory, export_glb=True):
     glb_path = None
     if export_glb:
         glb_path = directory / f"{family_id}.glb"
-        members = family_members(root)
+        members = exportable_family_members(root)
         if not members:
             raise ValueError("Family has no exportable members")
 
@@ -390,6 +413,8 @@ def export_family(root, directory, export_glb=True):
         try:
             bpy.ops.object.select_all(action="DESELECT")
             for obj in members:
+                obj.hide_set(False)
+                obj.hide_render = False
                 obj.select_set(True)
             bpy.context.view_layer.objects.active = members[0]
             bpy.ops.export_scene.gltf(
