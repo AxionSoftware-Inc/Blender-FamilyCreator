@@ -6,6 +6,7 @@ import bpy
 from . import core
 from .core import SUPPORTED_TYPES
 from .generators import rebuild_family_geometry, supports_generation
+from .quality import validate_family
 from .typed import create_typed_family, export_typed_family
 
 
@@ -86,8 +87,6 @@ def _remove_objects(objects):
         seen.add(obj)
         unique.append(obj)
 
-    # Leaves have zero descendants, so ascending descendant count removes
-    # children before parents and prevents generated/template survivors.
     unique.sort(key=lambda obj: len(obj.children_recursive))
     for obj in unique:
         if obj and obj.name in bpy.data.objects:
@@ -126,9 +125,11 @@ def convert_asset(context, filepath, output_directory, family_kind, export_glb=T
             raise ValueError("No supported mesh/curve geometry found")
 
         root = create_typed_family(context, geometry, filepath.stem, family_kind)
+        quality_before = validate_family(root)
         generator_result = None
         if supports_generation(family_kind):
             generator_result = rebuild_family_geometry(root)
+        quality_after = validate_family(root)
 
         family_output = Path(output_directory) / family_kind.lower() / filepath.stem
         manifest, glb = export_typed_family(root, family_output, export_glb=export_glb)
@@ -139,6 +140,9 @@ def convert_asset(context, filepath, output_directory, family_kind, export_glb=T
             "manifest": str(manifest),
             "glb": str(glb) if glb else None,
             "generator": generator_result,
+            "quality_before": quality_before,
+            "quality": quality_after,
+            "needs_review": not bool(quality_after.get("ready", False)),
         }
     finally:
         _cleanup_import(imported, root=root, owned_datablocks=owned_datablocks)
@@ -188,6 +192,7 @@ def batch_convert_directory(
                     "discovered": len(assets),
                     "converted": len(results),
                     "failed": len(errors),
+                    "needs_review": sum(1 for item in results if item.get("needs_review")),
                     "results": results,
                     "errors": errors,
                     "aborted": True,
@@ -202,6 +207,7 @@ def batch_convert_directory(
         "discovered": len(assets),
         "converted": len(results),
         "failed": len(errors),
+        "needs_review": sum(1 for item in results if item.get("needs_review")),
         "results": results,
         "errors": errors,
         "aborted": False,
