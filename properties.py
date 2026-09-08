@@ -11,7 +11,7 @@ def _dimension_update(self, context):
 
 def _rule_update(self, context):
     root = family_root(self)
-    if root:
+    if root and not bool(root.get("bfc_applying", False)):
         apply_family(root)
 
 
