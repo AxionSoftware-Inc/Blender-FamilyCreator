@@ -1,9 +1,17 @@
 import bpy
 from bpy.types import Panel
 
-from .core import family_root, read_custom_parameters, read_types
+from .core import (
+    GENERATED_FLAG,
+    TEMPLATE_FLAG,
+    family_members,
+    family_root,
+    read_custom_parameters,
+    read_types,
+)
 from .family_types import get_family_type
 from .family_types.parameter_specs import get_parameter_specs, property_name
+from .generators import supports_generation
 from .typed import ensure_semantic_parameters
 
 
@@ -30,6 +38,26 @@ def _draw_batch_factory(layout, scene):
     batch.label(text="Supports .blend, .fbx, .glb, .gltf and .obj")
     if scene.bfc_batch_last_result:
         batch.label(text=scene.bfc_batch_last_result, icon="INFO")
+
+
+def _draw_generator(layout, root):
+    box = layout.box()
+    box.label(text="Procedural Geometry", icon="MOD_ARRAY")
+    supported = supports_generation(root.bfc_family_kind)
+    if not supported:
+        box.label(text="No class-specific generator yet; semantic scaling only.")
+        return
+
+    members = family_members(root)
+    template_count = sum(1 for obj in members if bool(obj.get(TEMPLATE_FLAG, False)))
+    generated_count = sum(1 for obj in members if bool(obj.get(GENERATED_FLAG, False)))
+    revision = int(root.get("bfc_generator_revision", 0))
+
+    box.label(text=f"Generator: {root.bfc_family_kind}  |  Revision: {revision}")
+    box.label(text=f"Templates: {template_count}  |  Generated: {generated_count}")
+    box.operator("bfc.rebuild_procedural_geometry", icon="FILE_REFRESH")
+    box.label(text="Edit semantic parameters above, then rebuild geometry.")
+    box.label(text="Applying a saved Type rebuilds supported classes automatically.")
 
 
 class BFC_PT_main(Panel):
@@ -110,6 +138,8 @@ class BFC_PT_main(Panel):
             params_info.operator("bfc.solve_stair_parameters", icon="MOD_ARRAY")
             params_info.label(text="0 step/riser/tread values are treated as Auto.")
 
+        _draw_generator(layout, root)
+
         types_box = layout.box()
         types_box.label(text="Size / Variant Types", icon="PRESET")
         types_box.prop(scene, "bfc_type_query")
@@ -129,6 +159,10 @@ class BFC_PT_main(Panel):
             row.prop(active, "bfc_rule_x", text="X")
             row.prop(active, "bfc_rule_y", text="Y")
             row.prop(active, "bfc_rule_z", text="Z")
+            if bool(active.get(TEMPLATE_FLAG, False)):
+                rules.label(text="Generator template (excluded from export)")
+            elif bool(active.get(GENERATED_FLAG, False)):
+                rules.label(text="Generated instance")
             rules.label(text="Analyze assigns role + rules from the family class.")
             rules.label(text="Role/rules can be corrected manually when needed.")
 
