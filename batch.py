@@ -53,12 +53,26 @@ def import_asset(filepath, context):
     elif extension in {".glb", ".gltf"}:
         bpy.ops.import_scene.gltf(filepath=str(filepath))
     elif extension == ".obj":
-        # Blender 4.x native OBJ importer.
         bpy.ops.wm.obj_import(filepath=str(filepath))
     else:
         raise ValueError(f"Unsupported asset format: {extension}")
 
     return _new_objects(before)
+
+
+def _collect_owned_datablocks(objects):
+    """Collect data/material datablocks referenced by this imported asset only."""
+    owned = set()
+    for obj in objects:
+        data = getattr(obj, "data", None)
+        if data is not None:
+            owned.add(data)
+            materials = getattr(data, "materials", None)
+            if materials is not None:
+                for material in materials:
+                    if material is not None:
+                        owned.add(material)
+    return owned
 
 
 def _remove_objects(objects):
@@ -67,31 +81,40 @@ def _remove_objects(objects):
             bpy.data.objects.remove(obj, do_unlink=True)
 
 
-def _purge_unused_data():
-    # Remove only zero-user datablocks created by repeated imports. Keep this
-    # conservative so batch conversion never touches live scene data in use.
-    datablock_collections = (
-        bpy.data.meshes,
-        bpy.data.curves,
-        bpy.data.materials,
-        bpy.data.images,
-    )
-    for collection in datablock_collections:
-        for datablock in list(collection):
-            if datablock.users == 0:
-                collection.remove(datablock)
+def _remove_owned_datablocks(datablocks):
+    """Remove only imported datablocks that became unused after object cleanup."""
+    removable = [datablock for datablock in datablocks if datablock is not None and datablock.users == 0]
+    if not removable:
+        return
+
+    try:
+        bpy.data.batch_remove(ids=removable)
+    except Exception:
+        # Safety beats aggressive cleanup. If Blender cannot batch-remove a
+        # tracked datablock type, leave it orphaned rather than touching any
+        # unrelated user data.
+        pass
+
+
+def _cleanup_import(imported, root=None, owned_datablocks=None):
+    cleanup_objects = list(imported)
+    if root is not None:
+        cleanup_objects.append(root)
+    _remove_objects(cleanup_objects)
+    _remove_owned_datablocks(owned_datablocks or set())
 
 
 def convert_asset(context, filepath, output_directory, family_kind, export_glb=True):
     filepath = Path(filepath)
     imported = import_asset(filepath, context)
-    geometry = [obj for obj in imported if obj.type in SUPPORTED_TYPES]
-    if not geometry:
-        _remove_objects(imported)
-        raise ValueError("No supported mesh/curve geometry found")
-
+    owned_datablocks = _collect_owned_datablocks(imported)
     root = None
+
     try:
+        geometry = [obj for obj in imported if obj.type in SUPPORTED_TYPES]
+        if not geometry:
+            raise ValueError("No supported mesh/curve geometry found")
+
         root = create_typed_family(context, geometry, filepath.stem, family_kind)
         family_output = Path(output_directory) / family_kind.lower() / filepath.stem
         manifest, glb = export_typed_family(root, family_output, export_glb=export_glb)
@@ -103,11 +126,7 @@ def convert_asset(context, filepath, output_directory, family_kind, export_glb=T
             "glb": str(glb) if glb else None,
         }
     finally:
-        cleanup = list(imported)
-        if root is not None:
-            cleanup.append(root)
-        _remove_objects(cleanup)
-        _purge_unused_data()
+        _cleanup_import(imported, root=root, owned_datablocks=owned_datablocks)
 
 
 def batch_convert_directory(
