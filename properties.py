@@ -17,12 +17,14 @@ def _rule_update(self, context):
 
 
 def register_properties():
+    family_items = family_type_items()
+
     bpy.types.Object.bfc_family_name = StringProperty(name="Family Name", default="Family")
     bpy.types.Object.bfc_category = StringProperty(name="Category", default="Generic Model")
     bpy.types.Object.bfc_family_kind = EnumProperty(
         name="Family Class",
         description="Dedicated BIM family behavior profile",
-        items=family_type_items,
+        items=family_items,
         default="GENERIC",
     )
     bpy.types.Object.bfc_type_name = StringProperty(name="Type Name", default="Default")
@@ -47,7 +49,7 @@ def register_properties():
     bpy.types.Scene.bfc_new_family_kind = EnumProperty(
         name="Family Class",
         description="Choose the exact family logic before conversion",
-        items=family_type_items,
+        items=family_items,
         default="GENERIC",
     )
     bpy.types.Scene.bfc_type_query = StringProperty(name="Type", default="Default")
