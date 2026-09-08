@@ -3,6 +3,8 @@ from bpy.types import Panel
 
 from .core import family_root, read_custom_parameters, read_types
 from .family_types import get_family_type
+from .family_types.parameter_specs import get_parameter_specs, property_name
+from .typed import ensure_semantic_parameters
 
 
 def _pretty_parameter(name):
@@ -46,17 +48,21 @@ class BFC_PT_main(Panel):
 
         editable = set(spec.get("editable_axes", ()))
         axis_parameters = spec.get("axis_parameters", {})
+        axis_anchors = spec.get("axis_anchors", {})
         dims = layout.box()
         dims.label(text="Class Dimensions", icon="ARROW_LEFTRIGHT")
         row = dims.row()
         row.enabled = "X" in editable
         row.prop(root, "bfc_width", text=_pretty_parameter(axis_parameters.get("X", "width")))
+        row.label(text=f"Anchor: {axis_anchors.get('X', 'CENTER')}")
         row = dims.row()
         row.enabled = "Y" in editable
         row.prop(root, "bfc_depth", text=_pretty_parameter(axis_parameters.get("Y", "depth")))
+        row.label(text=f"Anchor: {axis_anchors.get('Y', 'CENTER')}")
         row = dims.row()
         row.enabled = "Z" in editable
         row.prop(root, "bfc_height", text=_pretty_parameter(axis_parameters.get("Z", "height")))
+        row.label(text=f"Anchor: {axis_anchors.get('Z', 'CENTER')}")
         dims.label(text="Enabled axes: " + (", ".join(sorted(editable)) if editable else "fixed proportions"))
         row = dims.row(align=True)
         row.operator("bfc.reset_family", icon="LOOP_BACK")
@@ -64,9 +70,23 @@ class BFC_PT_main(Panel):
 
         params_info = layout.box()
         params_info.label(text="Semantic Class Parameters", icon="PROPERTIES")
-        params_info.label(text="Contract for class-specific geometry modules:")
-        for parameter in spec.get("parameters", ()):
-            params_info.label(text=_pretty_parameter(parameter))
+        ensure_semantic_parameters(root, root.bfc_family_kind)
+        parameter_specs = get_parameter_specs(root.bfc_family_kind)
+        if parameter_specs:
+            for parameter, parameter_spec in parameter_specs.items():
+                prop = property_name(parameter)
+                row = params_info.row()
+                row.prop(root, f'["{prop}"]', text=_pretty_parameter(parameter))
+                if parameter_spec.get("type") == "LENGTH":
+                    row.label(text="length")
+                elif parameter_spec.get("type") == "INT":
+                    row.label(text="count")
+        else:
+            params_info.label(text="No extra semantic parameters for this class.")
+
+        if root.bfc_family_kind == "STAIR":
+            params_info.operator("bfc.solve_stair_parameters", icon="MOD_ARRAY")
+            params_info.label(text="0 step/riser/tread values are treated as Auto.")
 
         types_box = layout.box()
         types_box.label(text="Size / Variant Types", icon="PRESET")
