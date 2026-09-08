@@ -40,6 +40,15 @@ def classify_role(spans, centers, name=""):
     return ROLE_UNKNOWN
 
 
+def infer_semantic_parameters(members, family_dims):
+    seats = [member for member in members if member.get("role") == ROLE_SEAT]
+    if not seats:
+        return {}
+    floor_z = -float(family_dims[2]) * 0.5
+    seat_tops = [float(member["maxs"][2]) - floor_z for member in seats]
+    return {"seat_height": sum(seat_tops) / len(seat_tops)}
+
+
 def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
     role = role or ROLE_UNKNOWN
 
