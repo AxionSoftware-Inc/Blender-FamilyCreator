@@ -146,6 +146,31 @@ FAMILY_TYPES = {
 }
 
 
+AXIS_PARAMETERS = {
+    "GENERIC": {"X": "width", "Y": "depth", "Z": "height"},
+    "SOFA": {"X": "width", "Y": "depth", "Z": "height"},
+    "TABLE": {"X": "width", "Y": "depth", "Z": "height"},
+    "CHAIR": {"X": "width", "Y": "depth", "Z": "height"},
+    "BED": {"X": "width", "Y": "length", "Z": "height"},
+    "CABINET": {"X": "width", "Y": "depth", "Z": "height"},
+    "WARDROBE": {"X": "width", "Y": "depth", "Z": "height"},
+    "SHELF": {"X": "width", "Y": "depth", "Z": "height"},
+    "KITCHEN_BASE": {"X": "width", "Y": "depth", "Z": "height"},
+    "KITCHEN_WALL": {"X": "width", "Y": "depth", "Z": "height"},
+    "DOOR": {"X": "width", "Y": "frame_depth", "Z": "height"},
+    "WINDOW": {"X": "width", "Y": "frame_depth", "Z": "height"},
+    "STAIR": {"X": "width", "Y": "total_run", "Z": "total_rise"},
+    "TOILET": {"X": "width", "Y": "depth", "Z": "height"},
+    "SINK": {"X": "width", "Y": "depth", "Z": "height"},
+    "BATHTUB": {"X": "width", "Y": "length", "Z": "height"},
+}
+
+
+for _type_id, _spec in FAMILY_TYPES.items():
+    _spec["logic_module"] = f"family_types.{_type_id.lower()}"
+    _spec["axis_parameters"] = AXIS_PARAMETERS[_type_id]
+
+
 def get_family_type(type_id):
     return FAMILY_TYPES.get(type_id, FAMILY_TYPES["GENERIC"])
 
