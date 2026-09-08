@@ -5,6 +5,9 @@ from .. import core
 from ..family_types.parameter_specs import property_name
 
 
+TEMPLATE_ROOT_FLAG = "bfc_is_template_root"
+
+
 def semantic_float(root, name, fallback=0.0):
     try:
         return float(root.get(property_name(name), fallback))
@@ -31,46 +34,83 @@ def role_members(root, roles, include_generated=False, include_templates=True):
     return result
 
 
+def _object_subtree(obj):
+    return [obj] + list(obj.children_recursive)
+
+
+def _top_level_candidates(objects):
+    objects = list(dict.fromkeys(objects))
+    candidate_set = set(objects)
+    result = []
+    for obj in objects:
+        current = obj.parent
+        has_candidate_parent = False
+        while current is not None:
+            if current in candidate_set:
+                has_candidate_parent = True
+                break
+            current = current.parent
+        if not has_candidate_parent:
+            result.append(obj)
+    return result
+
+
 def clear_generated(root, group=None):
-    removed = 0
-    for obj in list(core.family_members(root)):
+    generated = []
+    for obj in list(root.children_recursive):
         if not bool(obj.get(core.GENERATED_FLAG, False)):
             continue
         if group is not None and obj.get(core.GENERATOR_GROUP, "") != group:
             continue
-        bpy.data.objects.remove(obj, do_unlink=True)
-        removed += 1
+        generated.append(obj)
+
+    generated.sort(key=lambda obj: len(obj.children_recursive))
+    removed = 0
+    for obj in generated:
+        if obj.name in bpy.data.objects:
+            bpy.data.objects.remove(obj, do_unlink=True)
+            removed += 1
     return removed
 
 
 def mark_templates(objects, group):
-    for obj in objects:
-        obj[core.TEMPLATE_FLAG] = True
-        obj[core.GENERATOR_GROUP] = group
-        obj["bfc_exclude_export"] = True
-        obj.hide_render = True
-        try:
-            obj.hide_set(True)
-        except Exception:
-            pass
+    roots = _top_level_candidates(objects)
+    for template_root in roots:
+        for obj in _object_subtree(template_root):
+            obj[core.TEMPLATE_FLAG] = True
+            obj[core.GENERATOR_GROUP] = group
+            obj["bfc_exclude_export"] = True
+            obj[TEMPLATE_ROOT_FLAG] = obj == template_root
+            obj.hide_render = True
+            try:
+                obj.hide_set(True)
+            except Exception:
+                pass
+    return roots
 
 
 def unmark_templates(objects):
-    for obj in objects:
-        obj[core.TEMPLATE_FLAG] = False
-        obj["bfc_exclude_export"] = False
-        obj.hide_render = False
-        try:
-            obj.hide_set(False)
-        except Exception:
-            pass
+    roots = _top_level_candidates(objects)
+    for template_root in roots:
+        for obj in _object_subtree(template_root):
+            if not bool(obj.get(core.TEMPLATE_FLAG, False)):
+                continue
+            obj[core.TEMPLATE_FLAG] = False
+            obj["bfc_exclude_export"] = False
+            obj[TEMPLATE_ROOT_FLAG] = False
+            obj.hide_render = False
+            try:
+                obj.hide_set(False)
+            except Exception:
+                pass
 
 
 def current_templates(root, group):
     return [
         obj
-        for obj in core.family_members(root)
+        for obj in root.children_recursive
         if bool(obj.get(core.TEMPLATE_FLAG, False))
+        and bool(obj.get(TEMPLATE_ROOT_FLAG, False))
         and obj.get(core.GENERATOR_GROUP, "") == group
     ]
 
@@ -85,8 +125,7 @@ def prepare_template_group(root, roles, group):
     if not sources:
         return []
 
-    mark_templates(sources, group)
-    return sources
+    return mark_templates(sources, group)
 
 
 def local_center(obj, root):
@@ -105,36 +144,76 @@ def choose_center_prototype(objects, root, axis=0):
     return min(objects, key=lambda obj: abs(local_center(obj, root)[axis]))
 
 
+def _link_clone(root, original, clone):
+    collections = list(original.users_collection)
+    if collections:
+        for collection in collections:
+            collection.objects.link(clone)
+    else:
+        collection = root.users_collection[0] if root.users_collection else bpy.context.collection
+        collection.objects.link(clone)
+
+
 def duplicate_template(root, source, group, name, role=None):
-    clone = source.copy()
-    clone.data = source.data
-    clone.name = name
+    """Clone a template root and its complete child subtree.
 
-    collection = root.users_collection[0] if root.users_collection else bpy.context.collection
-    collection.objects.link(clone)
+    Object data is linked, not deep-copied, so repeated cushions/shelves/treads
+    stay memory-efficient while preserving child details and material slots.
+    """
+    originals = _object_subtree(source)
+    clone_map = {}
+    world_matrices = {obj: obj.matrix_world.copy() for obj in originals}
 
-    clone.parent = root
-    clone.matrix_world = source.matrix_world.copy()
-    clone[core.MEMBER_FLAG] = True
-    clone[core.TEMPLATE_FLAG] = False
-    clone[core.GENERATED_FLAG] = True
-    clone[core.GENERATOR_GROUP] = group
-    clone["bfc_exclude_export"] = False
-    clone.hide_render = False
-    try:
-        clone.hide_set(False)
-    except Exception:
-        pass
+    for original in originals:
+        clone = original.copy()
+        clone_map[original] = clone
+        _link_clone(root, original, clone)
+
+        clone[core.TEMPLATE_FLAG] = False
+        clone[TEMPLATE_ROOT_FLAG] = False
+        clone[core.GENERATED_FLAG] = True
+        clone[core.GENERATOR_GROUP] = group
+        clone["bfc_exclude_export"] = False
+        clone.hide_render = False
+        try:
+            clone.hide_set(False)
+        except Exception:
+            pass
+
+    for original, clone in clone_map.items():
+        if original == source:
+            clone.parent = root
+        elif original.parent in clone_map:
+            clone.parent = clone_map[original.parent]
+        else:
+            clone.parent = clone_map[source]
+        clone.matrix_world = world_matrices[original]
+
+    root_clone = clone_map[source]
+    root_clone.name = name
+    for original, clone in clone_map.items():
+        if original == source:
+            continue
+        clone.name = f"{name}_{original.name}"
 
     if role is not None:
-        clone.bfc_member_role = role
+        root_clone.bfc_member_role = role
 
-    rules = (source.bfc_rule_x, source.bfc_rule_y, source.bfc_rule_z)
-    core.analyze_member(root, clone)
-    clone.bfc_rule_x, clone.bfc_rule_y, clone.bfc_rule_z = rules
-    if role is not None:
-        clone.bfc_member_role = role
-    return clone
+    for original, clone in clone_map.items():
+        if not bool(original.get(core.MEMBER_FLAG, False)):
+            continue
+        clone[core.MEMBER_FLAG] = True
+        original_rules = (
+            original.bfc_rule_x,
+            original.bfc_rule_y,
+            original.bfc_rule_z,
+        )
+        original_role = getattr(original, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
+        core.analyze_member(root, clone)
+        clone.bfc_rule_x, clone.bfc_rule_y, clone.bfc_rule_z = original_rules
+        clone.bfc_member_role = role if original == source and role is not None else original_role
+
+    return root_clone
 
 
 def set_family_local_location(root, obj, axis, value):
@@ -144,7 +223,8 @@ def set_family_local_location(root, obj, axis, value):
     translation[index] = float(value)
     local.translation = translation
     obj.matrix_world = root.matrix_world @ local
-    core.analyze_member(root, obj)
+    if bool(obj.get(core.MEMBER_FLAG, False)):
+        core.analyze_member(root, obj)
 
 
 def resize_family_axis(root, obj, axis, target_span):
@@ -163,7 +243,8 @@ def resize_family_axis(root, obj, axis, target_span):
     result = stretch_matrix @ basis
     result.translation = loc
     obj.matrix_world = root.matrix_world @ result
-    core.analyze_member(root, obj)
+    if bool(obj.get(core.MEMBER_FLAG, False)):
+        core.analyze_member(root, obj)
 
 
 def resize_family_axis_anchored(root, obj, axis, target_span, anchor="CENTER"):
