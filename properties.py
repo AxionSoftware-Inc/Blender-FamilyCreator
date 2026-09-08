@@ -2,12 +2,30 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from .core import FAMILY_FLAG, apply_family, family_root
-from .family_types import family_type_items
+from .family_types import family_type_items, get_family_type
 
 
 def _dimension_update(self, context):
-    if bool(self.get(FAMILY_FLAG, False)) and not bool(self.get("bfc_applying", False)):
-        apply_family(self)
+    if not bool(self.get(FAMILY_FLAG, False)) or bool(self.get("bfc_applying", False)):
+        return
+
+    spec = get_family_type(getattr(self, "bfc_family_kind", "GENERIC"))
+    editable = set(spec.get("editable_axes", ("X", "Y", "Z")))
+
+    # Keep manifest dimensions honest: a class cannot silently accept an
+    # overall dimension that its geometry strategy does not implement.
+    self["bfc_applying"] = True
+    try:
+        if "X" not in editable:
+            self.bfc_width = self.bfc_base_width
+        if "Y" not in editable:
+            self.bfc_depth = self.bfc_base_depth
+        if "Z" not in editable:
+            self.bfc_height = self.bfc_base_height
+    finally:
+        self["bfc_applying"] = False
+
+    apply_family(self)
 
 
 def _rule_update(self, context):
