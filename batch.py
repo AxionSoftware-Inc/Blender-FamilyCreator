@@ -86,10 +86,10 @@ def _remove_objects(objects):
         seen.add(obj)
         unique.append(obj)
 
-    # Children first prevents generated/template descendants from surviving a
-    # batch item after their family root is removed.
-    unique.sort(key=lambda obj: len(obj.children_recursive), reverse=False)
-    for obj in reversed(unique):
+    # Leaves have zero descendants, so ascending descendant count removes
+    # children before parents and prevents generated/template survivors.
+    unique.sort(key=lambda obj: len(obj.children_recursive))
+    for obj in unique:
         if obj and obj.name in bpy.data.objects:
             bpy.data.objects.remove(obj, do_unlink=True)
 
