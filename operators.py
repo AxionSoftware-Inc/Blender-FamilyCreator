@@ -13,6 +13,7 @@ from .core import (
 from .family_types.parameter_specs import property_name
 from .family_types.stair import solve_parameters as solve_stair_parameters
 from .generators import rebuild_family_geometry, supports_generation
+from .prepare import auto_prepare_objects
 from .typed import (
     apply_family_kind,
     apply_semantic_parameter_values,
@@ -27,6 +28,43 @@ from .typed import (
 
 def active_root(context):
     return family_root(context.active_object) if context.active_object else None
+
+
+class BFC_OT_prepare_selection(Operator):
+    bl_idname = "bfc.prepare_selection"
+    bl_label = "Prepare Selection"
+    bl_description = "Conservatively split disconnected mesh islands before creating a family"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        selected = list(context.selected_objects)
+        if not selected:
+            self.report({"ERROR"}, "Select one or more asset objects")
+            return {"CANCELLED"}
+
+        try:
+            result = auto_prepare_objects(
+                context,
+                selected,
+                max_islands=context.scene.bfc_prepare_max_islands,
+            )
+        except Exception as exc:
+            context.scene.bfc_prepare_last_result = f"Prepare failed: {exc}"
+            self.report({"ERROR"}, context.scene.bfc_prepare_last_result)
+            return {"CANCELLED"}
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in result["objects"]:
+            if obj and obj.name in bpy.data.objects:
+                obj.select_set(True)
+        if result["objects"]:
+            context.view_layer.objects.active = result["objects"][0]
+
+        context.scene.bfc_prepare_last_result = (
+            f"{result['split_objects']} object(s) split -> {result['output_objects']} prepared object(s)"
+        )
+        self.report({"INFO"}, context.scene.bfc_prepare_last_result)
+        return {"FINISHED"}
 
 
 class BFC_OT_create_family(Operator):
@@ -318,6 +356,8 @@ class BFC_OT_batch_convert(Operator):
                 recursive=scene.bfc_batch_recursive,
                 export_glb=scene.bfc_batch_export_glb,
                 continue_on_error=scene.bfc_batch_continue_on_error,
+                auto_split_loose=scene.bfc_batch_auto_split_loose,
+                max_loose_islands=scene.bfc_prepare_max_islands,
             )
         except Exception as exc:
             scene.bfc_batch_last_result = f"Batch failed: {exc}"
@@ -326,14 +366,15 @@ class BFC_OT_batch_convert(Operator):
 
         scene.bfc_batch_last_result = (
             f"{report['converted']} converted / {report['failed']} failed / "
-            f"{report['discovered']} discovered"
+            f"{report['needs_review']} review / {report['discovered']} discovered"
         )
-        message_type = {"WARNING"} if report["failed"] else {"INFO"}
+        message_type = {"WARNING"} if report["failed"] or report["needs_review"] else {"INFO"}
         self.report(message_type, scene.bfc_batch_last_result)
         return {"FINISHED"}
 
 
 CLASSES = (
+    BFC_OT_prepare_selection,
     BFC_OT_create_family,
     BFC_OT_apply_family_class,
     BFC_OT_smart_analyze,
