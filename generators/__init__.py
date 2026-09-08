@@ -1,9 +1,31 @@
-from . import shelf, sofa, stair
+from . import (
+    bed,
+    cabinet,
+    chair,
+    door,
+    kitchen_base,
+    kitchen_wall,
+    shelf,
+    sofa,
+    stair,
+    table,
+    wardrobe,
+    window,
+)
 
 
 GENERATORS = {
     "SOFA": sofa,
+    "TABLE": table,
+    "CHAIR": chair,
+    "BED": bed,
+    "CABINET": cabinet,
+    "WARDROBE": wardrobe,
     "SHELF": shelf,
+    "KITCHEN_BASE": kitchen_base,
+    "KITCHEN_WALL": kitchen_wall,
+    "DOOR": door,
+    "WINDOW": window,
     "STAIR": stair,
 }
 
