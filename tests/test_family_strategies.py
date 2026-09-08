@@ -1,13 +1,29 @@
 import unittest
 
-from family_types.strategies import infer_member_rule
+from family_types.strategies import classify_member_role, infer_member_rule
 
 
 class FamilyStrategyTests(unittest.TestCase):
     def test_sofa_width_behavior(self):
-        self.assertEqual(infer_member_rule("SOFA", "X", 0.80, 0.00, "seat"), "STRETCH")
-        self.assertEqual(infer_member_rule("SOFA", "X", 0.15, 0.80, "arm_left"), "MOVE")
-        self.assertEqual(infer_member_rule("SOFA", "Y", 0.90, 0.00, "seat"), "FIXED")
+        self.assertEqual(infer_member_rule("SOFA", "X", 0.80, 0.00, "seat", role="SEAT"), "STRETCH")
+        self.assertEqual(infer_member_rule("SOFA", "X", 0.15, 0.80, "arm_left", role="ARM_LEFT"), "MOVE")
+        self.assertEqual(infer_member_rule("SOFA", "Y", 0.90, 0.00, "seat", role="SEAT"), "FIXED")
+
+    def test_sofa_multi_cushion_keeps_cushion_shape(self):
+        self.assertEqual(infer_member_rule("SOFA", "X", 0.28, 0.62, "seat_left", role="SEAT"), "MOVE")
+        self.assertEqual(infer_member_rule("SOFA", "X", 0.28, 0.00, "seat_center", role="SEAT"), "MOVE")
+        self.assertEqual(infer_member_rule("SOFA", "X", 0.28, 0.62, "seat_right", role="SEAT"), "MOVE")
+
+    def test_sofa_role_classification_from_name(self):
+        self.assertEqual(classify_member_role("SOFA", (0.15, 0.8, 0.7), (-0.85, 0.0, 0.0), "left_arm"), "ARM_LEFT")
+        self.assertEqual(classify_member_role("SOFA", (0.15, 0.8, 0.7), (0.85, 0.0, 0.0), "right_arm"), "ARM_RIGHT")
+        self.assertEqual(classify_member_role("SOFA", (0.25, 0.6, 0.2), (0.0, 0.0, -0.2), "seat_cushion"), "SEAT")
+        self.assertEqual(classify_member_role("SOFA", (0.25, 0.2, 0.2), (-0.8, -0.5, -0.7), "leg_fl"), "LEG")
+
+    def test_sofa_role_classification_without_names(self):
+        self.assertEqual(classify_member_role("SOFA", (0.14, 0.70, 0.70), (-0.82, 0.0, 0.0), "Object.001"), "ARM_LEFT")
+        self.assertEqual(classify_member_role("SOFA", (0.14, 0.70, 0.70), (0.82, 0.0, 0.0), "Object.002"), "ARM_RIGHT")
+        self.assertEqual(classify_member_role("SOFA", (0.70, 0.65, 0.18), (0.0, 0.0, -0.35), "Object.003"), "SEAT")
 
     def test_table_leg_and_top_behavior(self):
         self.assertEqual(infer_member_rule("TABLE", "X", 0.12, 0.80, "leg_fl"), "MOVE")
