@@ -2,7 +2,11 @@ import unittest
 
 from family_types.registry import get_family_type
 from family_types.stair import solve_parameters as solve_stair_parameters
-from family_types.strategies import classify_member_role, infer_member_rule
+from family_types.strategies import (
+    classify_member_role,
+    infer_member_rule,
+    infer_semantic_parameters,
+)
 
 
 class FamilyStrategyTests(unittest.TestCase):
@@ -27,6 +31,18 @@ class FamilyStrategyTests(unittest.TestCase):
         self.assertEqual(classify_member_role("SOFA", (0.14, 0.70, 0.70), (0.82, 0.0, 0.0), "Object.002"), "ARM_RIGHT")
         self.assertEqual(classify_member_role("SOFA", (0.70, 0.65, 0.18), (0.0, 0.0, -0.35), "Object.003"), "SEAT")
 
+    def test_sofa_semantic_parameter_inference(self):
+        members = [
+            {"role": "SEAT", "span": (0.55, 0.70, 0.15), "maxs": (-0.05, 0.30, -0.10)},
+            {"role": "SEAT", "span": (0.55, 0.70, 0.15), "maxs": (0.50, 0.30, -0.10)},
+            {"role": "ARM_LEFT", "span": (0.12, 0.80, 0.55), "maxs": (-0.80, 0.40, 0.20)},
+            {"role": "ARM_RIGHT", "span": (0.12, 0.80, 0.55), "maxs": (0.80, 0.40, 0.20)},
+        ]
+        values = infer_semantic_parameters("SOFA", members, (1.8, 0.9, 0.9))
+        self.assertEqual(values["seat_count"], 2)
+        self.assertAlmostEqual(values["arm_width"], 0.12)
+        self.assertAlmostEqual(values["seat_height"], 0.35)
+
     def test_table_semantic_roles(self):
         self.assertEqual(classify_member_role("TABLE", (0.90, 0.80, 0.10), (0.0, 0.0, 0.85), "table_top"), "TOP")
         self.assertEqual(classify_member_role("TABLE", (0.12, 0.12, 0.75), (-0.80, -0.80, -0.05), "leg_fl"), "LEG")
@@ -37,6 +53,11 @@ class FamilyStrategyTests(unittest.TestCase):
         self.assertEqual(infer_member_rule("TABLE", "Z", 0.12, 0.85, "top", role="TOP"), "MOVE")
         self.assertEqual(infer_member_rule("TABLE", "Z", 0.75, 0.10, "leg", role="LEG"), "STRETCH")
         self.assertEqual(infer_member_rule("TABLE", "X", 0.90, 0.00, "top", role="TOP"), "STRETCH")
+
+    def test_table_top_thickness_inference(self):
+        members = [{"role": "TOP", "span": (1.2, 0.8, 0.04)}]
+        values = infer_semantic_parameters("TABLE", members, (1.2, 0.8, 0.75))
+        self.assertAlmostEqual(values["top_thickness"], 0.04)
 
     def test_chair_roles(self):
         self.assertEqual(classify_member_role("CHAIR", (0.65, 0.60, 0.15), (0.0, 0.0, 0.0), "seat"), "SEAT")
@@ -60,11 +81,39 @@ class FamilyStrategyTests(unittest.TestCase):
         self.assertEqual(infer_member_rule("CABINET", "Z", 0.85, 0.00, "left_side", role="SIDE_LEFT"), "STRETCH")
         self.assertEqual(infer_member_rule("KITCHEN_BASE", "Z", 0.85, 0.00, "left_side", role="SIDE_LEFT"), "FIXED")
 
+    def test_casework_parameter_inference(self):
+        members = [
+            {"role": "SIDE_LEFT", "span": (0.018, 0.58, 0.72)},
+            {"role": "SIDE_RIGHT", "span": (0.018, 0.58, 0.72)},
+            {"role": "TOP", "span": (0.60, 0.58, 0.018)},
+            {"role": "BOTTOM", "span": (0.60, 0.58, 0.018)},
+            {"role": "SHELF", "span": (0.56, 0.55, 0.018)},
+            {"role": "SHELF", "span": (0.56, 0.55, 0.018)},
+            {"role": "TOE_KICK", "span": (0.60, 0.05, 0.10)},
+        ]
+        values = infer_semantic_parameters("SHELF", members, (0.60, 0.60, 0.80))
+        self.assertAlmostEqual(values["panel_thickness"], 0.018)
+        self.assertEqual(values["shelf_count"], 2)
+
+        values = infer_semantic_parameters("KITCHEN_BASE", members, (0.60, 0.60, 0.80))
+        self.assertAlmostEqual(values["toe_kick_height"], 0.10)
+
     def test_door_semantic_roles(self):
         self.assertEqual(classify_member_role("DOOR", (0.10, 0.15, 0.90), (-0.90, 0.0, 0.0), "left_jamb"), "FRAME_LEFT")
         self.assertEqual(classify_member_role("DOOR", (0.10, 0.15, 0.90), (0.90, 0.0, 0.0), "right_jamb"), "FRAME_RIGHT")
         self.assertEqual(classify_member_role("DOOR", (0.90, 0.15, 0.10), (0.0, 0.0, 0.90), "head"), "FRAME_HEAD")
         self.assertEqual(classify_member_role("DOOR", (0.80, 0.10, 0.85), (0.0, 0.0, 0.0), "door_leaf"), "DOOR_LEAF")
+
+    def test_opening_parameter_inference(self):
+        members = [
+            {"role": "FRAME_LEFT", "span": (0.05, 0.12, 2.1)},
+            {"role": "FRAME_RIGHT", "span": (0.05, 0.12, 2.1)},
+            {"role": "FRAME_HEAD", "span": (0.90, 0.12, 0.05)},
+            {"role": "DOOR_LEAF", "span": (0.80, 0.04, 2.0)},
+        ]
+        values = infer_semantic_parameters("DOOR", members, (0.90, 0.12, 2.1))
+        self.assertAlmostEqual(values["frame_width"], 0.05)
+        self.assertAlmostEqual(values["panel_thickness"], 0.04)
 
     def test_window_semantic_roles(self):
         self.assertEqual(classify_member_role("WINDOW", (0.75, 0.08, 0.75), (0.0, 0.0, 0.0), "sash"), "WINDOW_SASH")
@@ -90,20 +139,12 @@ class FamilyStrategyTests(unittest.TestCase):
         self.assertEqual(infer_member_rule("STAIR", "Z", 0.90, 0.00, "riser", role="RISER"), "FIXED")
 
     def test_stair_parameter_solver(self):
-        solved = solve_stair_parameters(
-            step_count=10,
-            tread_depth=0.28,
-            riser_height=0.17,
-        )
+        solved = solve_stair_parameters(step_count=10, tread_depth=0.28, riser_height=0.17)
         self.assertEqual(solved["step_count"], 10)
         self.assertAlmostEqual(solved["total_run"], 2.8)
         self.assertAlmostEqual(solved["total_rise"], 1.7)
 
-        solved = solve_stair_parameters(
-            total_run=3.0,
-            total_rise=1.8,
-            target_riser_height=0.18,
-        )
+        solved = solve_stair_parameters(total_run=3.0, total_rise=1.8, target_riser_height=0.18)
         self.assertEqual(solved["step_count"], 10)
         self.assertAlmostEqual(solved["tread_depth"], 0.30)
         self.assertAlmostEqual(solved["riser_height"], 0.18)
