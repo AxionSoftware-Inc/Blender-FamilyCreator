@@ -14,6 +14,16 @@ ROLE_HINGE = "HINGE"
 ROLE_HARDWARE = "HARDWARE"
 
 
+def _median(values):
+    values = sorted(float(v) for v in values if float(v) > 0.0)
+    if not values:
+        return None
+    middle = len(values) // 2
+    if len(values) % 2:
+        return values[middle]
+    return (values[middle - 1] + values[middle]) * 0.5
+
+
 def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
     sx, sy, sz = spans
     cx, cy, cz = centers
@@ -44,7 +54,6 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
     if name_has(name, "sill", "threshold"):
         return ROLE_FRAME_SILL
 
-    # Geometry fallback for generic imported object names.
     if sx <= 0.20 and sz >= 0.55 and abs(cx) >= 0.55:
         return ROLE_FRAME_LEFT if cx < 0.0 else ROLE_FRAME_RIGHT
     if sx >= 0.55 and sz <= 0.20 and cz >= 0.50:
@@ -56,6 +65,30 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
     if sx >= 0.45 and sz >= 0.45:
         return panel_role
     return ROLE_UNKNOWN
+
+
+def infer_semantic_parameters(members, family_dims):
+    frame_widths = []
+    panel_thicknesses = []
+
+    for member in members:
+        role = member.get("role")
+        span = member.get("span", (0.0, 0.0, 0.0))
+        if role in {ROLE_FRAME_LEFT, ROLE_FRAME_RIGHT, ROLE_MULLION}:
+            frame_widths.append(abs(float(span[0])))
+        elif role in {ROLE_FRAME_HEAD, ROLE_FRAME_SILL}:
+            frame_widths.append(abs(float(span[2])))
+        elif role in {ROLE_PANEL, "DOOR_LEAF", "WINDOW_SASH"}:
+            panel_thicknesses.append(abs(float(span[1])))
+
+    values = {}
+    frame_width = _median(frame_widths)
+    panel_thickness = _median(panel_thicknesses)
+    if frame_width is not None:
+        values["frame_width"] = frame_width
+    if panel_thickness is not None:
+        values["panel_thickness"] = panel_thickness
+    return values
 
 
 def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
