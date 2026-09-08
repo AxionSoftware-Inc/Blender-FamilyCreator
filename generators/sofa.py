@@ -5,9 +5,12 @@ from .common import (
     clear_generated,
     duplicate_template,
     evenly_spaced_centers,
+    local_center,
     local_span,
     prepare_template_group,
+    resize_family_axis_anchored,
     role_members,
+    semantic_float,
     set_family_local_location,
     unmark_templates,
 )
@@ -15,7 +18,6 @@ from .common import (
 
 GROUP = "SOFA_SEATS"
 SEAT_ROLE = "SEAT"
-ARM_ROLES = {"ARM_LEFT", "ARM_RIGHT", "ARM"}
 
 
 def _semantic_int(root, name, fallback=0):
@@ -26,17 +28,45 @@ def _semantic_int(root, name, fallback=0):
         return int(fallback)
 
 
-def _semantic_float(root, name, fallback=0.0):
-    value = root.get(property_name(name), fallback)
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return float(fallback)
+def _apply_arm_width(root):
+    arm_width = semantic_float(root, "arm_width", 0.0)
+    if arm_width <= 0.0:
+        return 0
+
+    affected = 0
+    for obj in role_members(root, {"ARM_LEFT"}, include_generated=True):
+        resize_family_axis_anchored(root, obj, "X", arm_width, anchor="MIN")
+        affected += 1
+    for obj in role_members(root, {"ARM_RIGHT"}, include_generated=True):
+        resize_family_axis_anchored(root, obj, "X", arm_width, anchor="MAX")
+        affected += 1
+    for obj in role_members(root, {"ARM"}, include_generated=True):
+        resize_family_axis_anchored(root, obj, "X", arm_width, anchor="CENTER")
+        affected += 1
+    return affected
+
+
+def _apply_seat_height(root, seats):
+    seat_height = semantic_float(root, "seat_height", 0.0)
+    if seat_height <= 0.0 or not seats:
+        return 0.0
+
+    floor_z = -float(root.bfc_height) * 0.5
+    old_top = max(float(core.local_bbox(obj, root)[1].z) for obj in seats)
+    target_top = floor_z + seat_height
+    delta = target_top - old_top
+    if abs(delta) <= 1e-9:
+        return 0.0
+
+    for obj in seats:
+        center = local_center(obj, root)
+        set_family_local_location(root, obj, "Z", float(center.z) + delta)
+    return delta
 
 
 def _inner_bounds(root):
     half = float(root.bfc_width) * 0.5
-    arm_width = max(_semantic_float(root, "arm_width", 0.0), 0.0)
+    arm_width = max(semantic_float(root, "arm_width", 0.0), 0.0)
     left = -half + arm_width
     right = half - arm_width
 
@@ -51,13 +81,23 @@ def _inner_bounds(root):
 
 def rebuild(root):
     clear_generated(root, GROUP)
+    arm_affected = _apply_arm_width(root)
+
     templates = prepare_template_group(root, {SEAT_ROLE}, GROUP)
     if not templates:
+        if arm_affected:
+            root["bfc_generator_revision"] = int(root.get("bfc_generator_revision", 0)) + 1
+            return {
+                "changed": True,
+                "affected": arm_affected,
+                "message": "Applied Sofa Arm Width; no SEAT role found for repetition",
+            }
         return {
             "changed": False,
             "message": "SOFA generator needs at least one member classified as SEAT",
         }
 
+    seat_delta = _apply_seat_height(root, templates)
     source_count = len(templates)
     target_count = _semantic_int(root, "seat_count", source_count)
     if target_count <= 0:
@@ -70,13 +110,16 @@ def rebuild(root):
     usable = inner_right - inner_left
     if usable <= 0.0:
         unmark_templates(templates)
-        return {"changed": False, "message": "SOFA has no usable width between arms"}
+        return {
+            "changed": bool(arm_affected or abs(seat_delta) > 1e-9),
+            "message": "SOFA has no usable width between arms",
+        }
 
     slot = usable / float(target_count)
     if seat_width > slot * 1.08:
         unmark_templates(templates)
         return {
-            "changed": False,
+            "changed": bool(arm_affected or abs(seat_delta) > 1e-9),
             "message": (
                 f"Requested {target_count} seats do not fit current sofa width. "
                 "Increase Width or reduce Seat Count."
@@ -106,7 +149,10 @@ def rebuild(root):
     return {
         "changed": True,
         "generated": len(generated),
+        "affected": arm_affected,
         "group": GROUP,
         "seatCount": target_count,
-        "message": f"Generated {target_count} sofa seat modules",
+        "seatHeight": semantic_float(root, "seat_height", 0.0),
+        "armWidth": semantic_float(root, "arm_width", 0.0),
+        "message": f"Generated {target_count} sofa seat modules and applied sofa semantic geometry",
     }
