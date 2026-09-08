@@ -100,6 +100,7 @@ def typed_manifest_metadata(root):
             "logicModule": spec.get("logic_module"),
             "editableAxes": list(spec.get("editable_axes", ())),
             "axisParameters": dict(spec.get("axis_parameters", {})),
+            "axisAnchors": dict(spec.get("axis_anchors", {})),
             "parameters": list(spec.get("parameters", ())),
             "roleCounts": role_counts,
         },
