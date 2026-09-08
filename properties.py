@@ -73,6 +73,18 @@ def register_properties():
         items=family_items,
         default="GENERIC",
     )
+    bpy.types.Scene.bfc_prepare_max_islands = IntProperty(
+        name="Max Loose Parts",
+        description="Only split disconnected meshes when their island count is within this conservative limit",
+        default=32,
+        min=2,
+        max=256,
+    )
+    bpy.types.Scene.bfc_prepare_last_result = StringProperty(
+        name="Last Prepare Result",
+        default="",
+        options={"HIDDEN"},
+    )
     bpy.types.Scene.bfc_type_query = StringProperty(name="Type", default="Default")
     bpy.types.Scene.bfc_param_name = StringProperty(name="Parameter", default="Clearance")
     bpy.types.Scene.bfc_param_default = FloatProperty(name="Default", default=0.0)
@@ -100,6 +112,11 @@ def register_properties():
         default="SOFA",
     )
     bpy.types.Scene.bfc_batch_recursive = BoolProperty(name="Include Subfolders", default=True)
+    bpy.types.Scene.bfc_batch_auto_split_loose = BoolProperty(
+        name="Auto Split Loose Parts",
+        description="Conservatively separate disconnected mesh islands before semantic analysis",
+        default=True,
+    )
     bpy.types.Scene.bfc_batch_export_glb = BoolProperty(name="Export GLB", default=True)
     bpy.types.Scene.bfc_batch_continue_on_error = BoolProperty(
         name="Continue on Error",
@@ -125,13 +142,14 @@ def unregister_properties():
             delattr(bpy.types.Object, name)
 
     scene_names = [
-        "bfc_new_family_name", "bfc_new_family_kind", "bfc_type_query",
-        "bfc_param_name", "bfc_param_default", "bfc_bind_param",
+        "bfc_new_family_name", "bfc_new_family_kind",
+        "bfc_prepare_max_islands", "bfc_prepare_last_result",
+        "bfc_type_query", "bfc_param_name", "bfc_param_default", "bfc_bind_param",
         "bfc_bind_data_path", "bfc_bind_index", "bfc_bind_expression",
         "bfc_export_directory", "bfc_export_glb",
         "bfc_batch_input_directory", "bfc_batch_output_directory", "bfc_batch_family_kind",
-        "bfc_batch_recursive", "bfc_batch_export_glb", "bfc_batch_continue_on_error",
-        "bfc_batch_last_result",
+        "bfc_batch_recursive", "bfc_batch_auto_split_loose", "bfc_batch_export_glb",
+        "bfc_batch_continue_on_error", "bfc_batch_last_result",
     ]
     for name in scene_names:
         if hasattr(bpy.types.Scene, name):
