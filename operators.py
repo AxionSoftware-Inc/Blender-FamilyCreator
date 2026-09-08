@@ -12,6 +12,7 @@ from .core import (
 )
 from .family_types.parameter_specs import property_name
 from .family_types.stair import solve_parameters as solve_stair_parameters
+from .generators import rebuild_family_geometry, supports_generation
 from .typed import (
     apply_family_kind,
     apply_semantic_parameter_values,
@@ -152,6 +153,35 @@ class BFC_OT_delete_type(Operator):
         return {"FINISHED"}
 
 
+class BFC_OT_rebuild_procedural_geometry(Operator):
+    bl_idname = "bfc.rebuild_procedural_geometry"
+    bl_label = "Rebuild Procedural Geometry"
+    bl_description = "Regenerate class-specific repeated geometry from semantic parameters"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        root = active_root(context)
+        if not root:
+            self.report({"ERROR"}, "Select a family or one of its members")
+            return {"CANCELLED"}
+        if not supports_generation(root.bfc_family_kind):
+            self.report({"WARNING"}, f"No procedural generator yet for {root.bfc_family_kind}")
+            return {"CANCELLED"}
+
+        try:
+            result = rebuild_family_geometry(root)
+        except Exception as exc:
+            self.report({"ERROR"}, f"Procedural rebuild failed: {exc}")
+            return {"CANCELLED"}
+
+        if result.get("changed"):
+            self.report({"INFO"}, result.get("message", "Procedural geometry rebuilt"))
+            return {"FINISHED"}
+
+        self.report({"WARNING"}, result.get("message", "Nothing was generated"))
+        return {"CANCELLED"}
+
+
 class BFC_OT_solve_stair_parameters(Operator):
     bl_idname = "bfc.solve_stair_parameters"
     bl_label = "Solve Stair Parameters"
@@ -188,9 +218,14 @@ class BFC_OT_solve_stair_parameters(Operator):
             return {"CANCELLED"}
 
         apply_semantic_parameter_values(root, solved, "STAIR")
+        result = rebuild_family_geometry(root)
+        if not result.get("changed"):
+            self.report({"WARNING"}, result.get("message", "Parameters solved, geometry not rebuilt"))
+            return {"FINISHED"}
+
         self.report(
             {"INFO"},
-            f"Stair solved: {solved['step_count']} steps, "
+            f"Stair solved and rebuilt: {solved['step_count']} steps, "
             f"run {solved['total_run']:.3f}, rise {solved['total_rise']:.3f}",
         )
         return {"FINISHED"}
@@ -306,6 +341,7 @@ CLASSES = (
     BFC_OT_save_type,
     BFC_OT_apply_type,
     BFC_OT_delete_type,
+    BFC_OT_rebuild_procedural_geometry,
     BFC_OT_solve_stair_parameters,
     BFC_OT_add_parameter,
     BFC_OT_bind_parameter,
