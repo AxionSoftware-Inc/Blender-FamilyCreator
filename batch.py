@@ -218,12 +218,60 @@ def convert_asset(
         _cleanup_import(imported, root=root, owned_datablocks=owned_datablocks)
 
 
-def _write_batch_report(output_directory, report):
+def _write_json(output_directory, filename, payload):
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
-    report_path = output_directory / "batch-report.json"
-    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    return report_path
+    path = output_directory / filename
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def _review_queue_payload(report):
+    review_items = []
+    for item in report.get("results", []):
+        if not item.get("needs_review"):
+            continue
+        quality = item.get("quality", {})
+        review_items.append({
+            "source": item.get("source"),
+            "output_key": item.get("output_key"),
+            "family": item.get("family"),
+            "family_kind": item.get("family_kind"),
+            "manifest": item.get("manifest"),
+            "glb": item.get("glb"),
+            "score": quality.get("score"),
+            "roleCoverage": quality.get("roleCoverage"),
+            "missingRoleGroups": quality.get("missingRoleGroups", []),
+            "warnings": quality.get("warnings", []),
+            "errors": quality.get("errors", []),
+            "generator": item.get("generator"),
+            "prepare": item.get("prepare"),
+        })
+
+    return {
+        "family_kind": report.get("family_kind"),
+        "input_directory": report.get("input_directory"),
+        "output_directory": report.get("output_directory"),
+        "review_count": len(review_items),
+        "items": review_items,
+        "failed": list(report.get("errors", [])),
+    }
+
+
+def _finalize_report(output_directory, report):
+    report["ready"] = sum(1 for item in report.get("results", []) if not item.get("needs_review"))
+    report["needs_review"] = sum(1 for item in report.get("results", []) if item.get("needs_review"))
+
+    review_payload = _review_queue_payload(report)
+    review_path = _write_json(output_directory, "review-queue.json", review_payload)
+    report["review_queue_path"] = str(review_path)
+
+    report_path = _write_json(output_directory, "batch-report.json", report)
+    report["report_path"] = str(report_path)
+
+    # Rewrite once so batch-report.json also contains its own final paths.
+    _write_json(output_directory, "batch-report.json", report)
+    return report
 
 
 def batch_convert_directory(
@@ -269,14 +317,13 @@ def batch_convert_directory(
                     "discovered": len(assets),
                     "converted": len(results),
                     "failed": len(errors),
-                    "needs_review": sum(1 for item in results if item.get("needs_review")),
                     "auto_split_loose": auto_split_loose,
                     "max_loose_islands": max_loose_islands,
                     "results": results,
                     "errors": errors,
                     "aborted": True,
                 }
-                report["report_path"] = str(_write_batch_report(output_directory, report))
+                _finalize_report(output_directory, report)
                 raise
 
     report = {
@@ -286,12 +333,10 @@ def batch_convert_directory(
         "discovered": len(assets),
         "converted": len(results),
         "failed": len(errors),
-        "needs_review": sum(1 for item in results if item.get("needs_review")),
         "auto_split_loose": auto_split_loose,
         "max_loose_islands": max_loose_islands,
         "results": results,
         "errors": errors,
         "aborted": False,
     }
-    report["report_path"] = str(_write_batch_report(output_directory, report))
-    return report
+    return _finalize_report(output_directory, report)
