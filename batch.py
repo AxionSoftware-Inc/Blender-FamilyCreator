@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from pathlib import Path
 
 import bpy
@@ -24,6 +25,29 @@ def discover_assets(directory, recursive=True):
         for path in iterator
         if path.is_file() and path.suffix.lower() in SUPPORTED_ASSET_EXTENSIONS
     )
+
+
+def _relative_family_key(filepath, input_directory):
+    filepath = Path(filepath)
+    input_directory = Path(input_directory)
+    try:
+        relative = filepath.relative_to(input_directory)
+    except ValueError:
+        relative = Path(filepath.name)
+    return relative.with_suffix("")
+
+
+def _build_output_keys(assets, input_directory):
+    base_keys = [_relative_family_key(path, input_directory) for path in assets]
+    counts = Counter(str(key).lower() for key in base_keys)
+    output_keys = {}
+
+    for filepath, key in zip(assets, base_keys):
+        if counts[str(key).lower()] > 1:
+            suffix = filepath.suffix.lower().lstrip(".") or "asset"
+            key = key.parent / f"{key.name}_{suffix}"
+        output_keys[filepath] = key
+    return output_keys
 
 
 def _snapshot_objects():
@@ -113,7 +137,14 @@ def _cleanup_import(imported, root=None, owned_datablocks=None):
     _remove_owned_datablocks(owned_datablocks or set())
 
 
-def convert_asset(context, filepath, output_directory, family_kind, export_glb=True):
+def convert_asset(
+    context,
+    filepath,
+    output_directory,
+    family_kind,
+    export_glb=True,
+    output_key=None,
+):
     filepath = Path(filepath)
     imported = import_asset(filepath, context)
     owned_datablocks = _collect_owned_datablocks(imported)
@@ -131,10 +162,12 @@ def convert_asset(context, filepath, output_directory, family_kind, export_glb=T
             generator_result = rebuild_family_geometry(root)
         quality_after = validate_family(root)
 
-        family_output = Path(output_directory) / family_kind.lower() / filepath.stem
+        key = Path(output_key) if output_key is not None else Path(filepath.stem)
+        family_output = Path(output_directory) / family_kind.lower() / key
         manifest, glb = export_typed_family(root, family_output, export_glb=export_glb)
         return {
             "source": str(filepath),
+            "output_key": str(key),
             "family": filepath.stem,
             "family_kind": family_kind,
             "manifest": str(manifest),
@@ -165,10 +198,12 @@ def batch_convert_directory(
     export_glb=True,
     continue_on_error=True,
 ):
+    input_directory = Path(input_directory)
     assets = discover_assets(input_directory, recursive=recursive)
     if not assets:
         raise ValueError("No supported .blend/.fbx/.glb/.gltf/.obj assets found")
 
+    output_keys = _build_output_keys(assets, input_directory)
     results = []
     errors = []
     for filepath in assets:
@@ -180,6 +215,7 @@ def batch_convert_directory(
                     output_directory,
                     family_kind,
                     export_glb=export_glb,
+                    output_key=output_keys[filepath],
                 )
             )
         except Exception as exc:
