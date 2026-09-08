@@ -1,7 +1,8 @@
 import json
 
 from . import core
-from .family_types import get_family_type, infer_member_rules
+from .family_types import get_family_type
+from .family_types.strategies import classify_member_role, infer_member_rules
 
 
 def family_profile(root):
@@ -9,7 +10,7 @@ def family_profile(root):
 
 
 def capture_typed_family(root):
-    """Capture base transforms and assign rules using the selected family class."""
+    """Capture base transforms and assign semantic roles/rules for the selected class."""
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     family_dims = (
         max(abs(root.bfc_base_width), 1e-9),
@@ -20,6 +21,7 @@ def capture_typed_family(root):
     root["bfc_applying"] = True
     try:
         for obj in core.family_members(root):
+            # Generic capture stores stable base transforms/bounds.
             core.analyze_member(root, obj)
 
             mins, maxs = core.local_bbox(obj, root)
@@ -27,14 +29,31 @@ def capture_typed_family(root):
             center = (mins + maxs) * 0.5
 
             spans = []
-            centers = []
+            absolute_centers = []
+            signed_centers = []
             for index in range(3):
                 size = family_dims[index]
                 spans.append(abs(span[index]) / size)
                 half = size * 0.5
-                centers.append(abs(center[index]) / half if half > 1e-9 else 0.0)
+                signed = center[index] / half if half > 1e-9 else 0.0
+                signed_centers.append(signed)
+                absolute_centers.append(abs(signed))
 
-            rules = infer_member_rules(family_kind, spans, centers, name=obj.name)
+            role = classify_member_role(
+                family_kind,
+                spans,
+                signed_centers,
+                name=obj.name,
+            )
+            obj.bfc_member_role = role
+
+            rules = infer_member_rules(
+                family_kind,
+                spans,
+                absolute_centers,
+                name=obj.name,
+                role=role,
+            )
             obj.bfc_rule_x = rules["X"]
             obj.bfc_rule_y = rules["Y"]
             obj.bfc_rule_z = rules["Z"]
@@ -66,6 +85,12 @@ def create_typed_family(context, objects, name, family_kind):
 def typed_manifest_metadata(root):
     type_id = getattr(root, "bfc_family_kind", "GENERIC")
     spec = get_family_type(type_id)
+
+    role_counts = {}
+    for obj in core.family_members(root):
+        role = getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
+        role_counts[role] = role_counts.get(role, 0) + 1
+
     return {
         "familyKind": type_id,
         "familyProfile": {
@@ -73,10 +98,11 @@ def typed_manifest_metadata(root):
             "group": spec["group"],
             "category": spec["category"],
             "strategy": spec["strategy"],
-            "logicModule": spec["logic_module"],
+            "logicModule": spec.get("logic_module"),
             "editableAxes": list(spec.get("editable_axes", ())),
             "axisParameters": dict(spec.get("axis_parameters", {})),
             "parameters": list(spec.get("parameters", ())),
+            "roleCounts": role_counts,
         },
     }
 
