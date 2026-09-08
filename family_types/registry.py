@@ -15,13 +15,13 @@ FAMILY_TYPES = {
         "description": "Width-driven upholstered seating. Arms move, center upholstery stretches.",
         "editable_axes": ("X",),
         "strategy": "SOFA",
-        "parameters": ("width", "depth", "height", "seat_height", "arm_width"),
+        "parameters": ("width", "depth", "height", "seat_height", "arm_width", "seat_count"),
     },
     "TABLE": {
         "label": "Table",
         "group": "Furniture",
         "category": "Furniture",
-        "description": "Table top stretches in plan; legs preserve section and move to edges.",
+        "description": "Table top stretches in plan; legs preserve section and move to corners.",
         "editable_axes": ("X", "Y", "Z"),
         "strategy": "TABLE",
         "parameters": ("width", "depth", "height", "top_thickness"),
@@ -152,7 +152,7 @@ AXIS_PARAMETERS = {
     "TABLE": {"X": "width", "Y": "depth", "Z": "height"},
     "CHAIR": {"X": "width", "Y": "depth", "Z": "height"},
     "BED": {"X": "width", "Y": "length", "Z": "height"},
-    "CABINET": {"X": "width", "Y": "depth", "Z": "height"},
+    "CABINET": {"X": "width", "Y": "depth", ""Z": "height"},
     "WARDROBE": {"X": "width", "Y": "depth", "Z": "height"},
     "SHELF": {"X": "width", "Y": "depth", "Z": "height"},
     "KITCHEN_BASE": {"X": "width", "Y": "depth", "Z": "height"},
@@ -166,9 +166,30 @@ AXIS_PARAMETERS = {
 }
 
 
+AXIS_ANCHORS = {
+    "GENERIC": {"X": "CENTER", "Y": "CENTER", "Z": "CENTER"},
+    "SOFA": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "TABLE": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "CHAIR": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "BED": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "CABINET": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "WARDROBE": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "SHELF": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "KITCHEN_BASE": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "KITCHEN_WALL": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "DOOR": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "WINDOW": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "STAIR": {"X": "CENTER", "Y": "MIN", "Z": "MIN"},
+    "TOILET": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "SINK": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+    "BATHTUB": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
+}
+
+
 for _type_id, _spec in FAMILY_TYPES.items():
     _spec["logic_module"] = f"family_types.{_type_id.lower()}"
     _spec["axis_parameters"] = AXIS_PARAMETERS[_type_id]
+    _spec["axis_anchors"] = AXIS_ANCHORS[_type_id]
 
 
 def get_family_type(type_id):
