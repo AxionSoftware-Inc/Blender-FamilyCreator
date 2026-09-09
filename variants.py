@@ -23,6 +23,7 @@ def snapshot_family_state(root):
         "depth": float(root.bfc_depth),
         "height": float(root.bfc_height),
         "semanticParameters": _semantic_values(root),
+        "generatorRevision": int(root.get("bfc_generator_revision", 0)),
     }
 
 
@@ -51,8 +52,10 @@ def apply_state(root, state, fallback_semantic=None):
         root["bfc_applying"] = False
 
     core.apply_family(root)
+    generator_result = None
     if supports_generation(getattr(root, "bfc_family_kind", "GENERIC")):
-        rebuild_family_geometry(root)
+        generator_result = rebuild_family_geometry(root)
+    return generator_result
 
 
 def _saved_type_state(name, values, semantic_fallback):
@@ -116,7 +119,11 @@ def export_baked_type_variants(
         for type_name in other_names:
             values = saved_types[type_name]
             state = _saved_type_state(type_name, values, original["semanticParameters"])
-            apply_state(root, state, fallback_semantic=original["semanticParameters"])
+            generator_result = apply_state(
+                root,
+                state,
+                fallback_semantic=original["semanticParameters"],
+            )
 
             variant_path = variants_dir / filenames[type_name]
             export_glb_geometry(root, variant_path)
@@ -125,6 +132,7 @@ def export_baked_type_variants(
                 "uri": variant_path.relative_to(directory).as_posix(),
                 "baked": True,
                 "primary": False,
+                "generatorChanged": bool(generator_result and generator_result.get("changed")),
             }
     except Exception:
         for path in created_files:
@@ -135,6 +143,7 @@ def export_baked_type_variants(
         raise
     finally:
         apply_state(root, original, fallback_semantic=original["semanticParameters"])
+        root["bfc_generator_revision"] = int(original["generatorRevision"])
 
     return {
         "variants": variants,
