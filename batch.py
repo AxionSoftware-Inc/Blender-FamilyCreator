@@ -171,6 +171,7 @@ def convert_asset(
     output_directory,
     family_kind,
     export_glb=True,
+    export_baked_types=True,
     output_key=None,
     auto_split_loose=True,
     max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
@@ -199,8 +200,6 @@ def convert_asset(
         key = Path(output_key) if output_key is not None else Path(filepath.stem)
         family_id = _family_id_from_key(family_kind, key)
 
-        # Pass helpers as well as geometry. Typed creation preserves Empty and
-        # Armature transform parents while semantic analysis remains geometry-only.
         root = create_typed_family(context, prepared_objects, filepath.stem, family_kind)
         root["bfc_family_id"] = family_id
         root["bfc_source_asset"] = str(filepath)
@@ -213,7 +212,12 @@ def convert_asset(
         quality_after = validate_family(root)
 
         family_output = Path(output_directory) / family_kind.lower() / key
-        manifest, glb = export_typed_family(root, family_output, export_glb=export_glb)
+        manifest, glb = export_typed_family(
+            root,
+            family_output,
+            export_glb=export_glb,
+            export_baked_types=export_baked_types and export_glb,
+        )
         return {
             "source": str(filepath),
             "output_key": key.as_posix(),
@@ -223,6 +227,7 @@ def convert_asset(
             "prepare": prepare_report,
             "manifest": str(manifest),
             "glb": str(glb) if glb else None,
+            "baked_types": bool(export_baked_types and export_glb),
             "generator": generator_result,
             "quality_before": quality_before,
             "quality": quality_after,
@@ -297,6 +302,7 @@ def batch_convert_directory(
     family_kind,
     recursive=True,
     export_glb=True,
+    export_baked_types=True,
     continue_on_error=True,
     auto_split_loose=True,
     max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
@@ -318,6 +324,7 @@ def batch_convert_directory(
                     output_directory,
                     family_kind,
                     export_glb=export_glb,
+                    export_baked_types=export_baked_types,
                     output_key=output_keys[filepath],
                     auto_split_loose=auto_split_loose,
                     max_loose_islands=max_loose_islands,
@@ -333,6 +340,8 @@ def batch_convert_directory(
                     "discovered": len(assets),
                     "converted": len(results),
                     "failed": len(errors),
+                    "export_glb": bool(export_glb),
+                    "export_baked_types": bool(export_baked_types and export_glb),
                     "auto_split_loose": auto_split_loose,
                     "max_loose_islands": max_loose_islands,
                     "results": results,
@@ -349,6 +358,8 @@ def batch_convert_directory(
         "discovered": len(assets),
         "converted": len(results),
         "failed": len(errors),
+        "export_glb": bool(export_glb),
+        "export_baked_types": bool(export_baked_types and export_glb),
         "auto_split_loose": auto_split_loose,
         "max_loose_islands": max_loose_islands,
         "results": results,
