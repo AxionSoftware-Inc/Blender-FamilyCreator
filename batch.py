@@ -7,6 +7,7 @@ import bpy
 from . import core
 from .catalog import build_library_index
 from .core import SUPPORTED_TYPES
+from .family_path import resolve_family_class_from_path
 from .generators import rebuild_family_geometry, supports_generation
 from .prepare import DEFAULT_MAX_LOOSE_ISLANDS, auto_prepare_objects
 from .quality import validate_family
@@ -14,6 +15,7 @@ from .typed import create_typed_family, export_typed_family
 
 
 SUPPORTED_ASSET_EXTENSIONS = {".blend", ".fbx", ".glb", ".gltf", ".obj"}
+AUTO_FOLDER_CLASS = "AUTO_FOLDER"
 
 
 def discover_assets(directory, recursive=True):
@@ -59,6 +61,19 @@ def _family_id_from_key(family_kind, key):
     if not suffix:
         suffix = "family"
     return f"axion:{family_kind.lower()}:{suffix}"
+
+
+def _resolve_requested_family_kind(requested_kind, filepath, input_directory):
+    if requested_kind != AUTO_FOLDER_CLASS:
+        return requested_kind
+    resolved = resolve_family_class_from_path(filepath, input_directory)
+    if resolved is None:
+        relative = _relative_family_key(filepath, input_directory).as_posix()
+        raise ValueError(
+            f"Could not resolve exact Family Class from folders for '{relative}'. "
+            "Place the asset under a recognized class folder such as sofas/, tables/, doors/ or windows/."
+        )
+    return resolved
 
 
 def _snapshot_objects():
@@ -285,6 +300,9 @@ def _review_queue_payload(report):
 def _finalize_report(output_directory, report):
     report["ready"] = sum(1 for item in report.get("results", []) if not item.get("needs_review"))
     report["needs_review"] = sum(1 for item in report.get("results", []) if item.get("needs_review"))
+    report["resolved_class_counts"] = dict(sorted(Counter(
+        item.get("family_kind", "GENERIC") for item in report.get("results", [])
+    ).items()))
 
     review_payload = _review_queue_payload(report)
     review_path = _write_json(output_directory, "review-queue.json", review_payload)
@@ -328,12 +346,13 @@ def batch_convert_directory(
     errors = []
     for filepath in assets:
         try:
+            actual_kind = _resolve_requested_family_kind(family_kind, filepath, input_directory)
             results.append(
                 convert_asset(
                     context,
                     filepath,
                     output_directory,
-                    family_kind,
+                    actual_kind,
                     export_glb=export_glb,
                     export_baked_types=export_baked_types,
                     output_key=output_keys[filepath],
