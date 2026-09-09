@@ -1,4 +1,5 @@
 from . import (
+    bathtub,
     bed,
     cabinet,
     chair,
@@ -6,9 +7,11 @@ from . import (
     kitchen_base,
     kitchen_wall,
     shelf,
+    sink,
     sofa,
     stair,
     table,
+    toilet,
     wardrobe,
     window,
 )
@@ -27,6 +30,9 @@ GENERATORS = {
     "DOOR": door,
     "WINDOW": window,
     "STAIR": stair,
+    "TOILET": toilet,
+    "SINK": sink,
+    "BATHTUB": bathtub,
 }
 
 
