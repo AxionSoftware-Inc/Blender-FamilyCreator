@@ -50,6 +50,14 @@ def review_reasons(item):
     if int(stats.get("armatureMembers", 0) or 0) > 0:
         reasons.append("ARMATURE")
 
+    # Generic Blender/vendor object names are not a review reason by themselves.
+    # They become useful diagnostics when semantic coverage is already low.
+    generic_share = float(stats.get("genericNameShare", 0.0) or 0.0)
+    if coverage < 0.80 and generic_share >= 0.50:
+        reasons.append("GENERIC_OBJECT_NAMES")
+    if bool(stats.get("mixedSceneNameHint", False)):
+        reasons.append("MIXED_SCENE_SUSPECTED")
+
     preflight_messages = list(preflight.get("warnings", ()) or ()) + list(preflight.get("severe", ()) or ())
     lowered = "\n".join(str(message).lower() for message in preflight_messages)
     if "heavy source geometry" in lowered:
@@ -81,6 +89,7 @@ def build_hardening_report(report):
         "needsReview": 0,
         "scoreTotal": 0.0,
         "coverageTotal": 0.0,
+        "genericNameShareTotal": 0.0,
     })
     by_format = defaultdict(lambda: {
         "discovered": 0,
@@ -98,6 +107,8 @@ def build_hardening_report(report):
         automatic_ready = bool(quality.get("automaticReady", False))
         source = item.get("source")
         source_format = _source_format(source)
+        preflight = quality.get("preflight", {}) if isinstance(quality.get("preflight"), dict) else {}
+        preflight_stats = preflight.get("stats", {}) if isinstance(preflight.get("stats"), dict) else {}
 
         class_stats = by_class[family_kind]
         class_stats["converted"] += 1
@@ -105,6 +116,7 @@ def build_hardening_report(report):
         class_stats["needsReview"] += int(not automatic_ready)
         class_stats["scoreTotal"] += float(quality.get("score", 0) or 0)
         class_stats["coverageTotal"] += float(quality.get("roleCoverage", 0.0) or 0.0)
+        class_stats["genericNameShareTotal"] += float(preflight_stats.get("genericNameShare", 0.0) or 0.0)
 
         format_stats = by_format[source_format]
         format_stats["discovered"] += 1
@@ -135,6 +147,7 @@ def build_hardening_report(report):
             "autoAcceptanceRate": _rounded_average(stats["automaticReady"], converted),
             "averageScore": round(_rounded_average(stats["scoreTotal"], converted), 2),
             "averageRoleCoverage": _rounded_average(stats["coverageTotal"], converted),
+            "averageGenericNameShare": _rounded_average(stats["genericNameShareTotal"], converted),
         }
 
     normalized_formats = {}
