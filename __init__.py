@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Axion Family Creator",
     "author": "AxionSoftware-Inc",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Family",
-    "description": "Convert Blender assets into typed semantic and procedurally generated BIM families",
+    "description": "Convert Blender assets into hosted, typed, semantic and procedurally generated BIM families",
     "category": "Object",
 }
 
