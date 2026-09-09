@@ -137,6 +137,37 @@ class FamilySchemaTests(unittest.TestCase):
         errors = validate_manifest(data)
         self.assertTrue(any("relative non-empty path" in error for error in errors))
 
+    def test_validates_thumbnail_metadata(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["thumbnail"] = {
+            "uri": "test_table.thumbnail.png",
+            "width": 512,
+            "height": 512,
+            "format": "PNG",
+            "transparent": True,
+        }
+        self.assertEqual(validate_manifest(data), [])
+
+    def test_rejects_absolute_thumbnail_uri(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["thumbnail"] = {
+            "uri": "/tmp/table.png",
+            "width": 512,
+            "height": 512,
+            "format": "PNG",
+        }
+        errors = validate_manifest(data)
+        self.assertTrue(any("thumbnail.uri" in error for error in errors))
+
+    def test_validates_export_warnings(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["exportWarnings"] = ["Thumbnail render failed: no render engine"]
+        self.assertEqual(validate_manifest(data), [])
+
+        data["exportWarnings"] = [123]
+        errors = validate_manifest(data)
+        self.assertTrue(any("exportWarnings" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
