@@ -13,6 +13,7 @@ from .hierarchy import create_family_preserving_hierarchy
 from .hosting import hosting_metadata
 from .materials import family_material_metadata
 from .quality import validate_family
+from .schema import assert_valid_manifest
 
 
 def family_profile(root):
@@ -274,10 +275,27 @@ def _inject_member_roles(root, data):
         member["role"] = roles.get(member.get("name"), "UNKNOWN")
 
 
+def _remove_partial_export(manifest_path, glb_path):
+    for path in (manifest_path, glb_path):
+        if path is None:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def export_typed_family(root, directory, export_glb=True):
     manifest_path, glb_path = core.export_family(root, directory, export_glb)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     data.update(typed_manifest_metadata(root))
     _inject_member_roles(root, data)
+
+    try:
+        assert_valid_manifest(data)
+    except Exception:
+        _remove_partial_export(manifest_path, glb_path)
+        raise
+
     manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return manifest_path, glb_path
