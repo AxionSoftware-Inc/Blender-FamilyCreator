@@ -10,11 +10,20 @@ from .family_types.strategies import (
 )
 from .generators import rebuild_family_geometry, supports_generation
 from .hosting import hosting_metadata
+from .materials import family_material_metadata
 from .quality import validate_family
 
 
 def family_profile(root):
     return get_family_type(getattr(root, "bfc_family_kind", "GENERIC"))
+
+
+def family_identifier(root, family_kind=None):
+    family_kind = family_kind or getattr(root, "bfc_family_kind", "GENERIC")
+    explicit = str(root.get("bfc_family_id", "") or "").strip()
+    if explicit:
+        return explicit
+    return f"axion:{family_kind.lower()}:{core.slugify(root.bfc_family_name)}"
 
 
 def _axis_default(root, axis):
@@ -211,8 +220,17 @@ def typed_manifest_metadata(root):
         role_counts[role] = role_counts.get(role, 0) + 1
 
     metadata = {
+        "familyId": family_identifier(root, type_id),
         "familyKind": type_id,
+        "units": {
+            "length": "meter",
+        },
+        "coordinateSystems": {
+            "family": "RIGHT_HANDED_Z_UP",
+            "geometry": "GLTF_RIGHT_HANDED_Y_UP",
+        },
         "semanticParameters": semantic_parameter_values(root, type_id),
+        "materials": family_material_metadata(root),
         "quality": validate_family(root),
         "generator": {
             "supported": supports_generation(type_id),
