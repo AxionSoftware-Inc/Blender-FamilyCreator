@@ -188,6 +188,7 @@ def convert_asset(
     family_kind,
     export_glb=True,
     export_baked_types=True,
+    export_thumbnail=True,
     output_key=None,
     auto_split_loose=True,
     max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
@@ -233,7 +234,9 @@ def convert_asset(
             family_output,
             export_glb=export_glb,
             export_baked_types=export_baked_types and export_glb,
+            export_thumbnail=export_thumbnail,
         )
+        manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
         return {
             "source": str(filepath),
             "output_key": key.as_posix(),
@@ -243,6 +246,8 @@ def convert_asset(
             "prepare": prepare_report,
             "manifest": str(manifest),
             "glb": str(glb) if glb else None,
+            "thumbnail": manifest_data.get("thumbnail"),
+            "export_warnings": list(manifest_data.get("exportWarnings", [])),
             "baked_types": bool(export_baked_types and export_glb),
             "generator": generator_result,
             "quality_before": quality_before,
@@ -275,6 +280,8 @@ def _review_queue_payload(report):
             "family_kind": item.get("family_kind"),
             "manifest": item.get("manifest"),
             "glb": item.get("glb"),
+            "thumbnail": item.get("thumbnail"),
+            "export_warnings": item.get("export_warnings", []),
             "score": quality.get("score"),
             "automaticReady": quality.get("automaticReady"),
             "roleCoverage": quality.get("roleCoverage"),
@@ -300,6 +307,9 @@ def _review_queue_payload(report):
 def _finalize_report(output_directory, report):
     report["ready"] = sum(1 for item in report.get("results", []) if not item.get("needs_review"))
     report["needs_review"] = sum(1 for item in report.get("results", []) if item.get("needs_review"))
+    report["thumbnail_warnings"] = sum(
+        1 for item in report.get("results", []) if item.get("export_warnings")
+    )
     report["resolved_class_counts"] = dict(sorted(Counter(
         item.get("family_kind", "GENERIC") for item in report.get("results", [])
     ).items()))
@@ -332,6 +342,7 @@ def batch_convert_directory(
     recursive=True,
     export_glb=True,
     export_baked_types=True,
+    export_thumbnail=True,
     continue_on_error=True,
     auto_split_loose=True,
     max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
@@ -355,6 +366,7 @@ def batch_convert_directory(
                     actual_kind,
                     export_glb=export_glb,
                     export_baked_types=export_baked_types,
+                    export_thumbnail=export_thumbnail,
                     output_key=output_keys[filepath],
                     auto_split_loose=auto_split_loose,
                     max_loose_islands=max_loose_islands,
@@ -372,6 +384,7 @@ def batch_convert_directory(
                     "failed": len(errors),
                     "export_glb": bool(export_glb),
                     "export_baked_types": bool(export_baked_types and export_glb),
+                    "export_thumbnail": bool(export_thumbnail),
                     "auto_split_loose": auto_split_loose,
                     "max_loose_islands": max_loose_islands,
                     "results": results,
@@ -390,6 +403,7 @@ def batch_convert_directory(
         "failed": len(errors),
         "export_glb": bool(export_glb),
         "export_baked_types": bool(export_baked_types and export_glb),
+        "export_thumbnail": bool(export_thumbnail),
         "auto_split_loose": auto_split_loose,
         "max_loose_islands": max_loose_islands,
         "results": results,
