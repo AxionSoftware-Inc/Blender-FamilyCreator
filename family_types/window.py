@@ -1,2 +1,28 @@
 from .opening_base import ROLE_GLASS
-from .opening_base import ROLE_WINDOW_SASH if False else None
+from .opening_base import classify_role as _classify_opening_role
+from .opening_base import infer_rule as _opening_rule
+from .opening_base import infer_semantic_parameters as _infer_opening_parameters
+
+
+ROLE_WINDOW_SASH = "WINDOW_SASH"
+
+
+def classify_role(spans, centers, name=""):
+    role = _classify_opening_role(spans, centers, name=name, panel_role=ROLE_WINDOW_SASH)
+
+    # When names are generic, a broad X/Z member with very small depth is much
+    # more likely to be glazing than a structural sash.  This distinction is
+    # optional for readiness (WINDOW_SASH is also valid), but it improves role
+    # coverage and material/runtime semantics for BlenderKit-style assets.
+    sx, sy, sz = spans
+    if role == ROLE_WINDOW_SASH and sy <= 0.18 and sx >= 0.40 and sz >= 0.40:
+        return ROLE_GLASS
+    return role
+
+
+def infer_semantic_parameters(members, family_dims):
+    return _infer_opening_parameters(members, family_dims)
+
+
+def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
+    return _opening_rule(axis, span_ratio, center_ratio, name=name, role=role)
