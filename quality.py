@@ -1,4 +1,5 @@
 from . import core
+from .preflight import inspect_family
 
 
 REQUIRED_ROLE_GROUPS = {
@@ -78,24 +79,43 @@ def validate_family(root):
     for group in missing_recommended:
         warnings.append("Recommended role not detected: " + " or ".join(group))
 
+    preflight = inspect_family(root)
+    warnings.extend(preflight.get("warnings", ()))
+    for message in preflight.get("severe", ()):
+        warnings.append("Preflight: " + message)
+
     requirement_score = 1.0 if not required_groups else (
         float(len(required_groups) - len(missing_groups)) / float(len(required_groups))
     )
     recommendation_score = 1.0 if not recommended_groups else (
         float(len(recommended_groups) - len(missing_recommended)) / float(len(recommended_groups))
     )
-    score = int(round((coverage * 50.0) + (requirement_score * 40.0) + (recommendation_score * 10.0)))
+    base_score = (coverage * 50.0) + (requirement_score * 40.0) + (recommendation_score * 10.0)
+    preflight_penalty = min(
+        25.0,
+        len(preflight.get("warnings", ())) * 3.0 + len(preflight.get("severe", ())) * 10.0,
+    )
+    score = int(round(max(0.0, base_score - preflight_penalty)))
     ready = not errors
+    review_recommended = bool(
+        errors
+        or missing_recommended
+        or coverage < 0.80
+        or preflight.get("reviewRecommended", False)
+    )
 
     return {
         "familyKind": family_kind,
         "ready": ready,
+        "automaticReady": ready and not review_recommended,
+        "reviewRecommended": review_recommended,
         "score": score,
         "sourceMembers": total,
         "roleCoverage": coverage,
         "roleCounts": role_counts,
         "missingRoleGroups": missing_groups,
         "missingRecommendedRoleGroups": missing_recommended,
+        "preflight": preflight,
         "warnings": warnings,
         "errors": errors,
     }
