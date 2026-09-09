@@ -120,6 +120,11 @@ def register_properties():
         description="Export a GLB geometry variant for every saved Family Type",
         default=True,
     )
+    bpy.types.Scene.bfc_export_thumbnail = BoolProperty(
+        name="Render Thumbnail",
+        description="Render a transparent 512x512 family preview; thumbnail failures do not fail the family export",
+        default=True,
+    )
 
     bpy.types.Scene.bfc_batch_input_directory = StringProperty(
         name="Asset Folder",
@@ -147,6 +152,11 @@ def register_properties():
     bpy.types.Scene.bfc_batch_export_baked_types = BoolProperty(
         name="Bake All Saved Types",
         description="Bake saved Family Types into separate GLB variants during batch export",
+        default=True,
+    )
+    bpy.types.Scene.bfc_batch_export_thumbnail = BoolProperty(
+        name="Render Thumbnails",
+        description="Render transparent 512x512 library thumbnails; failed renders are recorded as warnings and batch continues",
         default=True,
     )
     bpy.types.Scene.bfc_batch_continue_on_error = BoolProperty(
@@ -177,10 +187,11 @@ def unregister_properties():
         "bfc_prepare_max_islands", "bfc_prepare_last_result",
         "bfc_type_query", "bfc_param_name", "bfc_param_default", "bfc_bind_param",
         "bfc_bind_data_path", "bfc_bind_index", "bfc_bind_expression",
-        "bfc_export_directory", "bfc_export_glb", "bfc_export_baked_types",
+        "bfc_export_directory", "bfc_export_glb", "bfc_export_baked_types", "bfc_export_thumbnail",
         "bfc_batch_input_directory", "bfc_batch_output_directory", "bfc_batch_family_kind",
         "bfc_batch_recursive", "bfc_batch_auto_split_loose", "bfc_batch_export_glb",
-        "bfc_batch_export_baked_types", "bfc_batch_continue_on_error", "bfc_batch_last_result",
+        "bfc_batch_export_baked_types", "bfc_batch_export_thumbnail",
+        "bfc_batch_continue_on_error", "bfc_batch_last_result",
     ]
     for name in scene_names:
         if hasattr(bpy.types.Scene, name):
