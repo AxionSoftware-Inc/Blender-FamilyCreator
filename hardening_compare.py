@@ -26,15 +26,22 @@ def _asset_key(asset):
     return f"{family_kind}:{filename}"
 
 
-def _asset_map(report):
+def _asset_index(report):
     result = {}
+    collisions = defaultdict(list)
     for asset in report.get("assets", ()) or ():
         if not isinstance(asset, dict):
             continue
         key = _asset_key(asset)
-        if key and key not in result:
-            result[key] = asset
-    return result
+        if not key:
+            continue
+        if key in result:
+            if not collisions[key]:
+                collisions[key].append(str(result[key].get("source", "") or ""))
+            collisions[key].append(str(asset.get("source", "") or ""))
+            continue
+        result[key] = asset
+    return result, {key: values for key, values in sorted(collisions.items())}
 
 
 def _summary(report):
@@ -200,13 +207,14 @@ def _overlap_changes(baseline_assets, candidate_assets):
 def compare_hardening_reports(baseline, candidate):
     baseline_summary = _summary(baseline)
     candidate_summary = _summary(candidate)
-    baseline_assets = _asset_map(baseline)
-    candidate_assets = _asset_map(candidate)
+    baseline_assets, baseline_collisions = _asset_index(baseline)
+    candidate_assets, candidate_collisions = _asset_index(candidate)
 
     overlap_keys = sorted(set(baseline_assets) & set(candidate_assets))
     new_keys = sorted(set(candidate_assets) - set(baseline_assets))
     removed_keys = sorted(set(baseline_assets) - set(candidate_assets))
     improvements, regressions, stable = _overlap_changes(baseline_assets, candidate_assets)
+    collision_count = len(baseline_collisions) + len(candidate_collisions)
 
     return {
         "schema": COMPARE_SCHEMA,
@@ -229,6 +237,8 @@ def compare_hardening_reports(baseline, candidate):
             "overlapAssetKeys": overlap_keys,
             "newAssetKeys": new_keys,
             "removedAssetKeys": removed_keys,
+            "baselineKeyCollisions": baseline_collisions,
+            "candidateKeyCollisions": candidate_collisions,
         },
         "overlap": {
             "improvements": improvements,
@@ -241,6 +251,7 @@ def compare_hardening_reports(baseline, candidate):
         "reasonDelta": _reason_delta(baseline, candidate),
         "gate": {
             "overlapRegressionCount": len(regressions),
-            "passesNoRegressionGate": len(regressions) == 0,
+            "assetKeyCollisionCount": collision_count,
+            "passesNoRegressionGate": len(regressions) == 0 and collision_count == 0,
         },
     }
