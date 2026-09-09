@@ -14,6 +14,23 @@ REQUIRED_ROLE_GROUPS = {
     "DOOR": (("DOOR_LEAF", "PANEL"), ("FRAME_LEFT", "FRAME_RIGHT", "FRAME_HEAD")),
     "WINDOW": (("GLASS", "WINDOW_SASH", "PANEL"), ("FRAME_LEFT", "FRAME_RIGHT", "FRAME_HEAD")),
     "STAIR": (("TREAD",),),
+    "TOILET": (("BOWL", "BASE"),),
+    "SINK": (("BASIN",),),
+    "BATHTUB": (("TUB",),),
+}
+
+
+RECOMMENDED_ROLE_GROUPS = {
+    "SOFA": (("ARM_LEFT", "ARM_RIGHT", "ARM"),),
+    "TABLE": (("LEG", "SUPPORT"),),
+    "CHAIR": (("LEG", "FRAME"),),
+    "BED": (("BASE",),),
+    "DOOR": (("HANDLE", "HARDWARE", "HINGE"),),
+    "WINDOW": (("GLASS",),),
+    "STAIR": (("RISER", "STRINGER"),),
+    "TOILET": (("CONNECTOR",),),
+    "SINK": (("DRAIN", "CONNECTOR"),),
+    "BATHTUB": (("RIM",), ("DRAIN", "CONNECTOR")),
 }
 
 
@@ -23,6 +40,14 @@ def _source_members(root):
         for obj in core.family_members(root)
         if not bool(obj.get(core.GENERATED_FLAG, False))
     ]
+
+
+def _missing_groups(role_counts, groups):
+    missing = []
+    for alternatives in groups:
+        if not any(role_counts.get(role, 0) > 0 for role in alternatives):
+            missing.append(list(alternatives))
+    return missing
 
 
 def validate_family(root):
@@ -38,10 +63,9 @@ def validate_family(root):
     coverage = float(known) / float(total) if total else 0.0
 
     required_groups = REQUIRED_ROLE_GROUPS.get(family_kind, ())
-    missing_groups = []
-    for alternatives in required_groups:
-        if not any(role_counts.get(role, 0) > 0 for role in alternatives):
-            missing_groups.append(list(alternatives))
+    recommended_groups = RECOMMENDED_ROLE_GROUPS.get(family_kind, ())
+    missing_groups = _missing_groups(role_counts, required_groups)
+    missing_recommended = _missing_groups(role_counts, recommended_groups)
 
     warnings = []
     errors = []
@@ -49,14 +73,18 @@ def validate_family(root):
         errors.append("Family has no source geometry members")
     if coverage < 0.65 and total > 0:
         warnings.append(f"Only {coverage:.0%} of source members have semantic roles")
-    if missing_groups:
-        for group in missing_groups:
-            errors.append("Missing required role: " + " or ".join(group))
+    for group in missing_groups:
+        errors.append("Missing required role: " + " or ".join(group))
+    for group in missing_recommended:
+        warnings.append("Recommended role not detected: " + " or ".join(group))
 
     requirement_score = 1.0 if not required_groups else (
         float(len(required_groups) - len(missing_groups)) / float(len(required_groups))
     )
-    score = int(round((coverage * 60.0) + (requirement_score * 40.0)))
+    recommendation_score = 1.0 if not recommended_groups else (
+        float(len(recommended_groups) - len(missing_recommended)) / float(len(recommended_groups))
+    )
+    score = int(round((coverage * 50.0) + (requirement_score * 40.0) + (recommendation_score * 10.0)))
     ready = not errors
 
     return {
@@ -67,6 +95,7 @@ def validate_family(root):
         "roleCoverage": coverage,
         "roleCounts": role_counts,
         "missingRoleGroups": missing_groups,
+        "missingRecommendedRoleGroups": missing_recommended,
         "warnings": warnings,
         "errors": errors,
     }
