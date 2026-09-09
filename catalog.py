@@ -70,6 +70,18 @@ def _entry_from_manifest(path, root, data):
         "geometryVariants": resolved_variants,
     }
 
+    runtime_proxy = data.get("runtimeProxy")
+    if isinstance(runtime_proxy, dict):
+        selection = runtime_proxy.get("selection")
+        if isinstance(selection, dict) and isinstance(selection.get("size"), list):
+            entry["proxySize"] = selection.get("size")
+        footprint = runtime_proxy.get("planFootprint")
+        if isinstance(footprint, dict):
+            entry["planFootprint"] = {
+                "min": footprint.get("min"),
+                "max": footprint.get("max"),
+            }
+
     hosting = data.get("hosting")
     if isinstance(hosting, dict):
         entry["hostType"] = hosting.get("hostType")
