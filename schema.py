@@ -144,6 +144,23 @@ def _validate_geometry_variants(data, errors):
         errors.append("geometryStrategy.variantCount must match geometryVariants")
 
 
+def _validate_thumbnail(thumbnail, errors):
+    if thumbnail is None:
+        return
+    if not isinstance(thumbnail, dict):
+        errors.append("thumbnail must be an object")
+        return
+    uri = thumbnail.get("uri")
+    if not isinstance(uri, str) or not uri.strip() or uri.startswith("/"):
+        errors.append("thumbnail.uri must be a relative non-empty path")
+    if not isinstance(thumbnail.get("width"), int) or thumbnail.get("width", 0) <= 0:
+        errors.append("thumbnail.width must be a positive integer")
+    if not isinstance(thumbnail.get("height"), int) or thumbnail.get("height", 0) <= 0:
+        errors.append("thumbnail.height must be a positive integer")
+    if thumbnail.get("format") not in {"PNG", "JPEG", "WEBP"}:
+        errors.append("thumbnail.format is invalid")
+
+
 def validate_manifest(data):
     errors = []
     if not isinstance(data, dict):
@@ -188,6 +205,7 @@ def validate_manifest(data):
     _validate_materials(data.get("materials", []), errors)
     _validate_hosting(data.get("hosting"), errors)
     _validate_geometry_variants(data, errors)
+    _validate_thumbnail(data.get("thumbnail"), errors)
 
     if not isinstance(data.get("semanticParameters", {}), dict):
         errors.append("semanticParameters must be an object")
@@ -195,6 +213,11 @@ def validate_manifest(data):
         errors.append("quality must be an object")
     if not isinstance(data.get("generator"), dict):
         errors.append("generator must be an object")
+    warnings = data.get("exportWarnings", [])
+    if warnings is not None and (
+        not isinstance(warnings, list) or any(not isinstance(item, str) for item in warnings)
+    ):
+        errors.append("exportWarnings must be an array of strings")
 
     return errors
 
