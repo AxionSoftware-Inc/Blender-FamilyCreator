@@ -139,9 +139,6 @@ class BFC_OT_smart_analyze(Operator):
             return {"CANCELLED"}
 
         current = (root.bfc_width, root.bfc_depth, root.bfc_height)
-
-        # Analyze from the immutable base envelope without running the class
-        # generator three times through property update callbacks.
         _reset_dimensions_once(root, rebuild=False)
         capture_typed_family(root)
         _set_dimensions_without_callbacks(root, *current)
@@ -352,16 +349,24 @@ class BFC_OT_export_family(Operator):
         root = active_root(context)
         if not root:
             return {"CANCELLED"}
-        directory = bpy.path.abspath(context.scene.bfc_export_directory)
+        scene = context.scene
+        directory = bpy.path.abspath(scene.bfc_export_directory)
         if not directory:
             self.report({"ERROR"}, "Choose an export folder")
             return {"CANCELLED"}
         try:
-            manifest, glb = export_typed_family(root, directory, context.scene.bfc_export_glb)
+            manifest, glb = export_typed_family(
+                root,
+                directory,
+                scene.bfc_export_glb,
+                export_baked_types=scene.bfc_export_baked_types and scene.bfc_export_glb,
+            )
         except Exception as exc:
             self.report({"ERROR"}, f"Export failed: {exc}")
             return {"CANCELLED"}
-        self.report({"INFO"}, f"Exported {manifest.name}" + (f" + {glb.name}" if glb else ""))
+        saved_count = len(core.read_types(root)) if scene.bfc_export_baked_types and glb else 1
+        suffix = f" + {saved_count} baked type geometry variant(s)" if glb else ""
+        self.report({"INFO"}, f"Exported {manifest.name}" + suffix)
         return {"FINISHED"}
 
 
@@ -388,6 +393,7 @@ class BFC_OT_batch_convert(Operator):
                 scene.bfc_batch_family_kind,
                 recursive=scene.bfc_batch_recursive,
                 export_glb=scene.bfc_batch_export_glb,
+                export_baked_types=scene.bfc_batch_export_baked_types and scene.bfc_batch_export_glb,
                 continue_on_error=scene.bfc_batch_continue_on_error,
                 auto_split_loose=scene.bfc_batch_auto_split_loose,
                 max_loose_islands=scene.bfc_prepare_max_islands,
