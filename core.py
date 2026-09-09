@@ -163,6 +163,13 @@ def create_family(context, objects, name="Family"):
     root.location = center
     context.collection.objects.link(root)
 
+    # Blender may defer the evaluated world matrix after linking an Empty and
+    # assigning its location. Capture member matrices only after the view layer
+    # has synchronized, otherwise the first capture can accidentally store
+    # world-space translations as root-local BASE_MATRIX values. That breaks
+    # anchored classes (notably TABLE and DOOR) when their dimensions change.
+    context.view_layer.update()
+
     root[FAMILY_FLAG] = True
     root[TYPES_JSON] = "{}"
     root[CUSTOM_PARAMS_JSON] = "{}"
@@ -186,6 +193,7 @@ def create_family(context, objects, name="Family"):
             obj.parent = root
             obj.matrix_world = world
 
+    context.view_layer.update()
     capture_family(root)
     save_type(root, "Default", overwrite=True)
     return root

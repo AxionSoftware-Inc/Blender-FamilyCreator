@@ -54,7 +54,18 @@ def rebuild_family_geometry(root):
             "changed": False,
             "message": f"No procedural generator yet for {family_kind}",
         }
-    result = generator.rebuild(root)
+    # Generators intentionally perform several coordinated matrix and rule
+    # updates. RNA rule properties have update callbacks that normally reapply
+    # the family immediately; allowing those callbacks to run halfway through
+    # a rebuild restores the canonical source matrix and silently undoes the
+    # just-generated geometry. Suppress callbacks for the transaction and let
+    # the generator finish from one consistent state.
+    was_applying = bool(root.get("bfc_applying", False))
+    root["bfc_applying"] = True
+    try:
+        result = generator.rebuild(root)
+    finally:
+        root["bfc_applying"] = was_applying
     result.setdefault("familyKind", family_kind)
     result.setdefault("supported", True)
     return result
