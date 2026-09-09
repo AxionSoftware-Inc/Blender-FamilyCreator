@@ -59,9 +59,10 @@ def infer_semantic_parameters(members, family_dims):
     if not connectors:
         return {}
 
-    base_height = float(family_dims[2])
+    base_height = max(float(family_dims[2]), 0.0)
     heights = []
     for member in connectors:
         center = member.get("center", (0.0, 0.0, 0.0))
-        heights.append(float(center[2]) + base_height * 0.5)
-    return {"connector_height": max(min(heights), base_height) if heights else 0.0}
+        height = float(center[2]) + base_height * 0.5
+        heights.append(max(0.0, min(height, base_height)))
+    return {"connector_height": min(heights) if heights else 0.0}
