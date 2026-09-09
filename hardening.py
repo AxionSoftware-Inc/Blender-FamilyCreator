@@ -19,6 +19,24 @@ def _reason_code(reason):
     return str(reason).split(":", 1)[0]
 
 
+def _generator_reason(generator):
+    if not isinstance(generator, dict):
+        return None
+    if not generator.get("supported") or generator.get("changed", True):
+        return None
+    message = str(generator.get("message", "") or "").strip().lower()
+    if "auto/zero" in message or "auto or zero" in message:
+        return "GENERATOR_PARAMETER_AUTO"
+    if (
+        ("no " in message and " member" in message)
+        or "roles were not detected" in message
+        or "role was not detected" in message
+        or "role not detected" in message
+    ):
+        return "GENERATOR_MISSING_SEMANTICS"
+    return "GENERATOR_NO_CHANGE"
+
+
 def review_reasons(item):
     quality = item.get("quality", {}) if isinstance(item.get("quality"), dict) else {}
     reasons = []
@@ -72,9 +90,9 @@ def review_reasons(item):
     if item.get("export_warnings"):
         reasons.append("EXPORT_WARNING")
 
-    generator = item.get("generator")
-    if isinstance(generator, dict) and generator.get("supported") and not generator.get("changed", True):
-        reasons.append("GENERATOR_NO_CHANGE")
+    generator_reason = _generator_reason(item.get("generator"))
+    if generator_reason:
+        reasons.append(generator_reason)
 
     return sorted(set(reasons))
 
