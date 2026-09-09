@@ -57,11 +57,11 @@ def main():
     try:
         clean_scene()
         objects = [
-            cube("sash_left", (0.58, 0.08, 1.10), (-0.31, 0.0, 0.0)),
-            cube("sash_right", (0.58, 0.08, 1.10), (0.31, 0.0, 0.0)),
-            cube("sash_center", (0.05, 0.08, 1.10), (0.0, 0.0, 0.0)),
-            cube("glass_left", (0.52, 0.025, 0.98), (-0.31, 0.0, 0.0)),
-            cube("glass_right", (0.52, 0.025, 0.98), (0.31, 0.0, 0.0)),
+            cube("sash_left", (0.58, 0.12, 1.10), (-0.31, 0.0, 0.0)),
+            cube("sash_right", (0.58, 0.12, 1.10), (0.31, 0.0, 0.0)),
+            cube("sash_center", (0.05, 0.12, 1.10), (0.0, 0.0, 0.0)),
+            cube("glass_left", (0.52, 0.04, 0.98), (-0.31, 0.0, 0.0)),
+            cube("glass_right", (0.52, 0.04, 0.98), (0.31, 0.0, 0.0)),
         ]
         root = addon.typed.create_typed_family(
             bpy.context,
