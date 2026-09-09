@@ -10,6 +10,14 @@ The deterministic Blender 5.2 suite currently covers all registered Family Class
 
 Real Asset Hardening begins from that baseline rather than replacing it.
 
+The first real BlenderKit corpus baseline is recorded in:
+
+```text
+docs/hardening/2026-09-09-blenderkit-baseline.md
+```
+
+That first corpus contained 7 `.blend` assets across BED, TABLE and WINDOW. All 7 converted, but all 7 required review. The first hardening pass therefore focuses on semantic-role detection and mixed-scene diagnostics rather than transport/export reliability.
+
 ## Recommended corpus
 
 Use assets that may legally be tested locally. Keep third-party source models out of this repository unless their license explicitly permits redistribution.
@@ -105,6 +113,7 @@ The hardening report contains:
 - conversion success rate;
 - automatic acceptance rate;
 - class-by-class score and semantic-role coverage;
+- class-by-class average generic-object-name share;
 - format-by-format conversion / acceptance results;
 - normalized review reasons;
 - example source files for the most common reasons.
@@ -115,6 +124,8 @@ Normalized reasons include:
 LOW_ROLE_COVERAGE
 MISSING_REQUIRED_ROLE:<roles>
 MISSING_RECOMMENDED_ROLE:<roles>
+GENERIC_OBJECT_NAMES
+MIXED_SCENE_SUSPECTED
 NON_UNIFORM_SCALE
 UNAPPLIED_SCALE
 MIRRORED_TRANSFORM
@@ -126,6 +137,10 @@ EXPORT_WARNING
 GENERATOR_NO_CHANGE
 CONVERSION_FAILED
 ```
+
+`GENERIC_OBJECT_NAMES` is only reported when generic names coincide with low semantic coverage. A family is not rejected merely because its objects are named `Cube.001` if geometry-based semantics are otherwise strong.
+
+`MIXED_SCENE_SUSPECTED` is currently a conservative review signal, not an automatic deletion/filter step. For example, a `table-chair-set` should remain reviewable until explicit multi-item isolation logic can prove which objects belong to the table family.
 
 ## Triage rule
 
@@ -139,8 +154,9 @@ After each corpus run:
 4. Make the smallest class-specific/general fix that addresses the repeated pattern.
 5. Add a deterministic regression case when practical.
 6. Rerun the Blender 5.2 synthetic suite.
-7. Rerun the real corpus.
+7. Rerun the **same real corpus** before adding new assets.
 8. Compare acceptance and failure rates before/after.
+9. Only then expand the corpus/formats.
 
 A fix should improve the corpus without making unrelated classes less reliable.
 
@@ -170,6 +186,13 @@ Priority order:
 6. excessive false-positive preflight reviews;
 7. vendor-specific material / hierarchy quirks;
 8. low-value cosmetic issues.
+
+## Current first-pass policy decisions
+
+- Generic vendor names should be handled by geometry fallback where possible, not by lowering semantic thresholds.
+- Non-uniform scale remains a review signal; it is not auto-applied because modifiers, children and rigged assets can make transform application destructive.
+- Heavy geometry remains reviewable until the LOD/mobile-budget phase provides a deliberate simplification pipeline.
+- Mixed furniture sets are flagged rather than silently trimmed to one item.
 
 ## Exit criteria
 
