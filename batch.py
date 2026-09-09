@@ -199,7 +199,9 @@ def convert_asset(
         key = Path(output_key) if output_key is not None else Path(filepath.stem)
         family_id = _family_id_from_key(family_kind, key)
 
-        root = create_typed_family(context, geometry, filepath.stem, family_kind)
+        # Pass helpers as well as geometry. Typed creation preserves Empty and
+        # Armature transform parents while semantic analysis remains geometry-only.
+        root = create_typed_family(context, prepared_objects, filepath.stem, family_kind)
         root["bfc_family_id"] = family_id
         root["bfc_source_asset"] = str(filepath)
         root["bfc_source_key"] = key.as_posix()
