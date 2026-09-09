@@ -11,6 +11,14 @@ Run the deterministic regression harness from the repository root:
 & 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' --background --factory-startup --python tests/blender_runtime/run_all.py
 ```
 
+Family-level BED/WINDOW second-pass refinement has a focused Blender smoke test:
+
+```powershell
+& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' `
+  --background --factory-startup `
+  --python tests/blender_runtime/run_refinement_smoke.py
+```
+
 The script intentionally does not use normal system Python for Blender-facing
 checks. Pure-Python regression tests remain:
 
@@ -40,5 +48,6 @@ Example:
 
 In addition to normal batch outputs (`batch-report.json`, `review-queue.json`,
 `library-index.json`), the real-asset runner writes `hardening-report.json` with
-conversion/automatic-acceptance rates, class/format metrics and normalized
-review reasons.
+conversion/automatic-acceptance rates, class/format metrics, normalized review
+reasons, semantic refinement frequency, unresolved member samples and generator
+messages for hardening diagnostics.
