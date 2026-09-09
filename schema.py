@@ -100,6 +100,50 @@ def _validate_hosting(hosting, errors):
             errors.append(f"hosting.opening.{key} must be positive")
 
 
+def _validate_geometry_variants(data, errors):
+    variants = data.get("geometryVariants")
+    strategy = data.get("geometryStrategy")
+    if variants is None and strategy is None:
+        return
+    if not isinstance(variants, dict) or not variants:
+        errors.append("geometryVariants must be a non-empty object")
+        return
+
+    primary_names = []
+    for type_name, variant in variants.items():
+        path = f"geometryVariants.{type_name}"
+        if not isinstance(type_name, str) or not type_name.strip():
+            errors.append("geometryVariants contains an invalid type name")
+            continue
+        if not isinstance(variant, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        uri = variant.get("uri")
+        if not isinstance(uri, str) or not uri.strip() or uri.startswith("/"):
+            errors.append(f"{path}.uri must be a relative non-empty path")
+        if variant.get("baked") is not True:
+            errors.append(f"{path}.baked must be true")
+        if bool(variant.get("primary")):
+            primary_names.append(type_name)
+
+    if len(primary_names) != 1:
+        errors.append("geometryVariants must contain exactly one primary variant")
+    else:
+        active_type = data.get("activeType")
+        if primary_names[0] != active_type:
+            errors.append("primary geometry variant must match activeType")
+
+    if not isinstance(strategy, dict):
+        errors.append("geometryStrategy must be an object when geometryVariants are present")
+        return
+    if strategy.get("mode") not in {"BAKED_ACTIVE_TYPE", "BAKED_TYPE_VARIANTS"}:
+        errors.append("geometryStrategy.mode is invalid")
+    if strategy.get("activeType") != data.get("activeType"):
+        errors.append("geometryStrategy.activeType must match activeType")
+    if strategy.get("variantCount") != len(variants):
+        errors.append("geometryStrategy.variantCount must match geometryVariants")
+
+
 def validate_manifest(data):
     errors = []
     if not isinstance(data, dict):
@@ -118,6 +162,10 @@ def validate_manifest(data):
     if not isinstance(data.get("name"), str) or not data.get("name"):
         errors.append("name is required")
 
+    active_type = data.get("activeType")
+    if not isinstance(active_type, str) or not active_type.strip():
+        errors.append("activeType is required")
+
     units = data.get("units")
     if not isinstance(units, dict) or units.get("length") != "meter":
         errors.append("units.length must be meter")
@@ -134,9 +182,12 @@ def validate_manifest(data):
     _validate_dimensions(data.get("baseDimensions"), "baseDimensions", errors)
     _validate_dimensions(data.get("dimensions"), "dimensions", errors)
     _validate_types(data.get("types"), errors)
+    if isinstance(data.get("types"), dict) and active_type not in data.get("types", {}):
+        errors.append("activeType must exist in types")
     _validate_members(data.get("members"), errors)
     _validate_materials(data.get("materials", []), errors)
     _validate_hosting(data.get("hosting"), errors)
+    _validate_geometry_variants(data, errors)
 
     if not isinstance(data.get("semanticParameters", {}), dict):
         errors.append("semanticParameters must be an object")
