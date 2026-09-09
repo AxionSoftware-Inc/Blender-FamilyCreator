@@ -9,6 +9,7 @@ from .family_types.strategies import (
     infer_semantic_parameters,
 )
 from .generators import rebuild_family_geometry, supports_generation
+from .hosting import hosting_metadata
 from .quality import validate_family
 
 
@@ -101,7 +102,6 @@ def capture_typed_family(root):
                 continue
 
             core.analyze_member(root, obj)
-
             mins, maxs = core.local_bbox(obj, root)
             span = maxs - mins
             center = (mins + maxs) * 0.5
@@ -117,12 +117,7 @@ def capture_typed_family(root):
                 signed_centers.append(signed)
                 absolute_centers.append(abs(signed))
 
-            role = classify_member_role(
-                family_kind,
-                spans,
-                signed_centers,
-                name=obj.name,
-            )
+            role = classify_member_role(family_kind, spans, signed_centers, name=obj.name)
             obj.bfc_member_role = role
 
             rules = infer_member_rules(
@@ -215,7 +210,7 @@ def typed_manifest_metadata(root):
         role = getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
         role_counts[role] = role_counts.get(role, 0) + 1
 
-    return {
+    metadata = {
         "familyKind": type_id,
         "semanticParameters": semantic_parameter_values(root, type_id),
         "quality": validate_family(root),
@@ -236,6 +231,11 @@ def typed_manifest_metadata(root):
             "roleCounts": role_counts,
         },
     }
+
+    hosting = hosting_metadata(root)
+    if hosting is not None:
+        metadata["hosting"] = hosting
+    return metadata
 
 
 def _inject_member_roles(root, data):
