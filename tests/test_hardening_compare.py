@@ -152,6 +152,7 @@ class HardeningCompareTests(unittest.TestCase):
         self.assertEqual(result["newAssets"]["automaticReady"], 2)
         self.assertEqual(result["newAssets"]["autoAcceptanceRate"], 1.0)
         self.assertTrue(result["gate"]["passesNoRegressionGate"])
+        self.assertEqual(result["gate"]["assetKeyCollisionCount"], 0)
         self.assertEqual(result["formatDelta"]["FBX"]["candidateConverted"], 2)
 
     def test_detects_overlap_readiness_regression(self):
@@ -183,6 +184,35 @@ class HardeningCompareTests(unittest.TestCase):
         self.assertFalse(result["gate"]["passesNoRegressionGate"])
         self.assertEqual(result["gate"]["overlapRegressionCount"], 1)
         self.assertEqual(result["overlap"]["regressions"][0]["regression"], "AUTOMATIC_READY_LOST")
+
+    def test_duplicate_class_filename_fails_comparison_gate(self):
+        report = {
+            "summary": {},
+            "assets": [
+                {
+                    "source": r"D:\expanded\beds\vendor_a\bed.blend",
+                    "familyKind": "BED",
+                    "converted": True,
+                    "automaticReady": True,
+                    "score": 95,
+                    "roleCoverage": 0.95,
+                    "reasons": [],
+                },
+                {
+                    "source": r"D:\expanded\beds\vendor_b\bed.blend",
+                    "familyKind": "BED",
+                    "converted": True,
+                    "automaticReady": True,
+                    "score": 96,
+                    "roleCoverage": 0.96,
+                    "reasons": [],
+                },
+            ],
+        }
+        result = compare_hardening_reports({"summary": {}, "assets": []}, report)
+        self.assertFalse(result["gate"]["passesNoRegressionGate"])
+        self.assertEqual(result["gate"]["assetKeyCollisionCount"], 1)
+        self.assertIn("BED:bed.blend", result["corpus"]["candidateKeyCollisions"])
 
 
 if __name__ == "__main__":
