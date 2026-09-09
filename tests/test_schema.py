@@ -1,0 +1,89 @@
+import copy
+import unittest
+
+from schema import assert_valid_manifest, validate_manifest
+
+
+BASE_MANIFEST = {
+    "schema": "axion.family",
+    "schemaVersion": 2,
+    "familyId": "axion:table:test_table",
+    "familyKind": "TABLE",
+    "name": "Test Table",
+    "units": {"length": "meter"},
+    "coordinateSystems": {
+        "family": "RIGHT_HANDED_Z_UP",
+        "geometry": "GLTF_RIGHT_HANDED_Y_UP",
+    },
+    "baseDimensions": {"width": 1.2, "depth": 0.8, "height": 0.75},
+    "dimensions": {"width": 1.2, "depth": 0.8, "height": 0.75},
+    "types": {
+        "Default": {
+            "width": 1.2,
+            "depth": 0.8,
+            "height": 0.75,
+            "semanticParameters": {"top_thickness": 0.04},
+        }
+    },
+    "semanticParameters": {"top_thickness": 0.04},
+    "members": [
+        {
+            "name": "Top",
+            "type": "MESH",
+            "role": "TOP",
+            "rules": {"x": "STRETCH", "y": "STRETCH", "z": "MOVE"},
+        }
+    ],
+    "materials": [],
+    "quality": {"ready": True, "automaticReady": True},
+    "generator": {"supported": True, "revision": 1},
+}
+
+
+class FamilySchemaTests(unittest.TestCase):
+    def test_valid_minimal_schema_v2(self):
+        self.assertEqual(validate_manifest(copy.deepcopy(BASE_MANIFEST)), [])
+        self.assertIsNotNone(assert_valid_manifest(copy.deepcopy(BASE_MANIFEST)))
+
+    def test_rejects_invalid_dimensions(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["dimensions"]["width"] = 0.0
+        errors = validate_manifest(data)
+        self.assertTrue(any("dimensions.width" in error for error in errors))
+
+    def test_rejects_invalid_member_rule(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["members"][0]["rules"]["x"] = "SCALE_ANYTHING"
+        errors = validate_manifest(data)
+        self.assertTrue(any("members[0].rules.x" in error for error in errors))
+
+    def test_rejects_duplicate_material_ids(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["materials"] = [
+            {"id": "oak", "name": "Oak A", "usages": []},
+            {"id": "oak", "name": "Oak B", "usages": []},
+        ]
+        errors = validate_manifest(data)
+        self.assertTrue(any("duplicate material id" in error for error in errors))
+
+    def test_validates_hosted_opening(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["familyKind"] = "DOOR"
+        data["hosting"] = {
+            "hostType": "WALL",
+            "opening": {
+                "shape": "RECTANGLE",
+                "width": 0.9,
+                "height": 2.1,
+                "depth": 0.15,
+            },
+        }
+        self.assertEqual(validate_manifest(data), [])
+
+        data["hosting"]["opening"]["height"] = -2.1
+        errors = validate_manifest(data)
+        self.assertTrue(any("hosting.opening.height" in error for error in errors))
+
+
+if __name__ == "__main__":
+    unittest.main()
