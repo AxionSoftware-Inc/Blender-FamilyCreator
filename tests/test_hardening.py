@@ -43,6 +43,42 @@ class HardeningMetricsTests(unittest.TestCase):
         self.assertIn("EXPORT_WARNING", reasons)
         self.assertNotIn("UNAPPLIED_SCALE", reasons)
 
+    def test_generator_no_change_categories(self):
+        base_quality = {
+            "automaticReady": False,
+            "roleCoverage": 1.0,
+            "missingRoleGroups": [],
+            "missingRecommendedRoleGroups": [],
+            "preflight": {"stats": {}, "warnings": [], "severe": []},
+        }
+        auto = review_reasons({
+            "quality": base_quality,
+            "generator": {
+                "supported": True,
+                "changed": False,
+                "message": "Mattress Height is Auto/zero; source geometry kept",
+            },
+        })
+        missing = review_reasons({
+            "quality": base_quality,
+            "generator": {
+                "supported": True,
+                "changed": False,
+                "message": "Window Frame Width is Auto/zero or frame roles were not detected",
+            },
+        })
+        unknown = review_reasons({
+            "quality": base_quality,
+            "generator": {
+                "supported": True,
+                "changed": False,
+                "message": "Nothing was generated",
+            },
+        })
+        self.assertIn("GENERATOR_PARAMETER_AUTO", auto)
+        self.assertIn("GENERATOR_PARAMETER_AUTO", missing)
+        self.assertIn("GENERATOR_NO_CHANGE", unknown)
+
     def test_generic_names_do_not_create_reason_when_semantics_are_good(self):
         item = {
             "quality": {
@@ -74,6 +110,7 @@ class HardeningMetricsTests(unittest.TestCase):
                         "score": 96,
                         "roleCoverage": 1.0,
                         "roleRefinementCounts": {"WINDOW_FRAME_EDGE_CANDIDATE": 2},
+                        "unknownMemberSamples": [],
                         "missingRoleGroups": [],
                         "missingRecommendedRoleGroups": [],
                         "preflight": {
@@ -91,6 +128,9 @@ class HardeningMetricsTests(unittest.TestCase):
                         "score": 62,
                         "roleCoverage": 0.6,
                         "roleRefinementCounts": {"WINDOW_FRAME_EDGE_CANDIDATE": 1},
+                        "unknownMemberSamples": [
+                            {"name": "Cube.001", "normalizedSpan": [0.2, 0.2, 0.2], "normalizedCenter": [0, 0, 0]}
+                        ],
                         "missingRoleGroups": [],
                         "missingRecommendedRoleGroups": [],
                         "preflight": {
@@ -98,6 +138,11 @@ class HardeningMetricsTests(unittest.TestCase):
                             "warnings": [],
                             "severe": [],
                         },
+                    },
+                    "generator": {
+                        "supported": True,
+                        "changed": False,
+                        "message": "Nothing was generated",
                     },
                 },
             ],
@@ -119,12 +164,16 @@ class HardeningMetricsTests(unittest.TestCase):
         reasons = {item["reason"]: item["count"] for item in result["reviewReasons"]}
         self.assertEqual(reasons["LOW_ROLE_COVERAGE"], 1)
         self.assertEqual(reasons["GENERIC_OBJECT_NAMES"], 1)
+        self.assertEqual(reasons["GENERATOR_NO_CHANGE"], 1)
         self.assertEqual(reasons["CONVERSION_FAILED"], 1)
         self.assertEqual(result["reasonFrequency"]["LOW_ROLE_COVERAGE"], 1)
         self.assertEqual(result["reasonFrequency"]["GENERIC_OBJECT_NAMES"], 1)
+        self.assertEqual(result["reasonFrequency"]["GENERATOR_NO_CHANGE"], 1)
         self.assertEqual(result["reasonFrequency"]["CONVERSION_FAILED"], 1)
         self.assertEqual(result["refinementFrequency"]["WINDOW_FRAME_EDGE_CANDIDATE"], 3)
         self.assertEqual(result["assets"][0]["roleRefinements"]["WINDOW_FRAME_EDGE_CANDIDATE"], 2)
+        self.assertEqual(result["assets"][1]["unknownMemberSamples"][0]["name"], "Cube.001")
+        self.assertEqual(result["assets"][1]["generator"]["message"], "Nothing was generated")
         self.assertEqual(len(result["assets"]), 3)
         self.assertTrue(result["assets"][0]["converted"])
         self.assertFalse(result["assets"][-1]["converted"])
