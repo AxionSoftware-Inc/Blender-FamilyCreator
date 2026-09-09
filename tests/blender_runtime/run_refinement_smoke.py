@@ -81,12 +81,14 @@ def bed_refinement(addon):
 def window_refinement(addon):
     clean_scene()
     objects = [
-        # Thick, generic frame/casing pieces intentionally exceed first-pass
-        # opening-base profile thresholds but remain strong edge candidates.
-        cube("Cube.001", (0.66, 0.24, 1.10), (-0.72, 0.0, 0.0)),
-        cube("Cube.002", (0.66, 0.24, 1.10), (0.72, 0.0, 0.0)),
-        cube("Cube.003", (1.42, 0.24, 0.48), (0.0, 0.0, 0.56)),
-        cube("Cube.004", (1.42, 0.24, 0.48), (0.0, 0.0, -0.56)),
+        # These generic casing pieces are deliberately too wide/thick for the
+        # first-pass opening profile rules, but their family-relative edge
+        # position and dominant orientation make them strong second-pass frame
+        # candidates.
+        cube("Cube.001", (0.90, 0.24, 1.50), (-0.72, 0.0, 0.0)),
+        cube("Cube.002", (0.90, 0.24, 1.50), (0.72, 0.0, 0.0)),
+        cube("Cube.003", (1.80, 0.24, 0.70), (0.0, 0.0, 0.60)),
+        cube("Cube.004", (1.80, 0.24, 0.70), (0.0, 0.0, -0.60)),
         cube("Glass", (1.05, 0.04, 0.75), (0.0, 0.0, 0.0)),
     ]
     root = addon.typed.create_typed_family(bpy.context, objects, "Runtime Window Refinement", "WINDOW")
