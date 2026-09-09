@@ -59,7 +59,7 @@ class HardeningMetricsTests(unittest.TestCase):
         }
         self.assertNotIn("GENERIC_OBJECT_NAMES", review_reasons(item))
 
-    def test_builds_class_format_and_reason_metrics(self):
+    def test_builds_class_format_reason_and_refinement_metrics(self):
         report = {
             "family_kind": "AUTO_FOLDER",
             "input_directory": "assets",
@@ -73,6 +73,7 @@ class HardeningMetricsTests(unittest.TestCase):
                         "automaticReady": True,
                         "score": 96,
                         "roleCoverage": 1.0,
+                        "roleRefinementCounts": {"WINDOW_FRAME_EDGE_CANDIDATE": 2},
                         "missingRoleGroups": [],
                         "missingRecommendedRoleGroups": [],
                         "preflight": {
@@ -89,6 +90,7 @@ class HardeningMetricsTests(unittest.TestCase):
                         "automaticReady": False,
                         "score": 62,
                         "roleCoverage": 0.6,
+                        "roleRefinementCounts": {"WINDOW_FRAME_EDGE_CANDIDATE": 1},
                         "missingRoleGroups": [],
                         "missingRecommendedRoleGroups": [],
                         "preflight": {
@@ -121,6 +123,8 @@ class HardeningMetricsTests(unittest.TestCase):
         self.assertEqual(result["reasonFrequency"]["LOW_ROLE_COVERAGE"], 1)
         self.assertEqual(result["reasonFrequency"]["GENERIC_OBJECT_NAMES"], 1)
         self.assertEqual(result["reasonFrequency"]["CONVERSION_FAILED"], 1)
+        self.assertEqual(result["refinementFrequency"]["WINDOW_FRAME_EDGE_CANDIDATE"], 3)
+        self.assertEqual(result["assets"][0]["roleRefinements"]["WINDOW_FRAME_EDGE_CANDIDATE"], 2)
         self.assertEqual(len(result["assets"]), 3)
         self.assertTrue(result["assets"][0]["converted"])
         self.assertFalse(result["assets"][-1]["converted"])
