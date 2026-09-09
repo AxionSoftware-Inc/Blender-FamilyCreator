@@ -11,6 +11,17 @@ def _relative_uri(path, root):
     return Path(path).relative_to(root).as_posix()
 
 
+def _resolve_manifest_uri(manifest_path, root, uri):
+    uri_path = Path(str(uri))
+    if uri_path.is_absolute():
+        return None
+    resolved = (Path(manifest_path).parent / uri_path).resolve()
+    try:
+        return resolved.relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        return None
+
+
 def _load_manifest(path):
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -32,6 +43,17 @@ def _entry_from_manifest(path, root, data):
     variants = data.get("geometryVariants", {}) if isinstance(data.get("geometryVariants"), dict) else {}
     materials = data.get("materials", []) if isinstance(data.get("materials"), list) else []
 
+    resolved_variants = {}
+    for type_name, variant in variants.items():
+        if not isinstance(type_name, str) or not isinstance(variant, dict):
+            continue
+        uri = variant.get("uri")
+        if not isinstance(uri, str):
+            continue
+        resolved = _resolve_manifest_uri(path, root, uri)
+        if resolved is not None:
+            resolved_variants[type_name] = resolved
+
     entry = {
         "familyId": data["familyId"],
         "name": data.get("name", ""),
@@ -45,11 +67,7 @@ def _entry_from_manifest(path, root, data):
         "automaticReady": bool(quality.get("automaticReady", False)),
         "qualityScore": int(quality.get("score", 0) or 0),
         "materialCount": len(materials),
-        "geometryVariants": {
-            type_name: variant.get("uri")
-            for type_name, variant in variants.items()
-            if isinstance(type_name, str) and isinstance(variant, dict) and isinstance(variant.get("uri"), str)
-        },
+        "geometryVariants": resolved_variants,
     }
 
     hosting = data.get("hosting")
@@ -58,7 +76,9 @@ def _entry_from_manifest(path, root, data):
 
     thumbnail = data.get("thumbnail")
     if isinstance(thumbnail, dict) and isinstance(thumbnail.get("uri"), str):
-        entry["thumbnail"] = thumbnail.get("uri")
+        resolved_thumbnail = _resolve_manifest_uri(path, root, thumbnail.get("uri"))
+        if resolved_thumbnail is not None:
+            entry["thumbnail"] = resolved_thumbnail
 
     source = data.get("source")
     if isinstance(source, dict) and source.get("key"):
