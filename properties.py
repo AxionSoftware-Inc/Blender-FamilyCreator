@@ -5,6 +5,21 @@ from .core import FAMILY_FLAG, apply_family, family_root
 from .family_types import family_type_items, get_family_type
 
 
+def _rebuild_after_dimension_change(root):
+    try:
+        from .generators import rebuild_family_geometry, supports_generation
+
+        if not supports_generation(getattr(root, "bfc_family_kind", "GENERIC")):
+            return
+        result = rebuild_family_geometry(root)
+        root["bfc_generator_last_message"] = result.get("message", "")
+        root["bfc_generator_last_error"] = ""
+    except Exception as exc:
+        # Dimension editing should remain usable even when a class-specific
+        # generator needs manual cleanup. Quality/review can surface the issue.
+        root["bfc_generator_last_error"] = str(exc)
+
+
 def _dimension_update(self, context):
     if not bool(self.get(FAMILY_FLAG, False)) or bool(self.get("bfc_applying", False)):
         return
@@ -24,6 +39,7 @@ def _dimension_update(self, context):
         self["bfc_applying"] = False
 
     apply_family(self)
+    _rebuild_after_dimension_change(self)
 
 
 def _rule_update(self, context):
