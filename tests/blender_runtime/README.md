@@ -19,6 +19,21 @@ Family-level BED/WINDOW second-pass refinement has a focused Blender smoke test:
   --python tests/blender_runtime/run_refinement_smoke.py
 ```
 
+Baked Window validity versus separate-frame edit capability has its own smoke test:
+
+```powershell
+& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' `
+  --background --factory-startup `
+  --python tests/blender_runtime/run_window_capability_smoke.py
+```
+
+Expected focused smoke results:
+
+```text
+SEMANTIC_REFINEMENT_SMOKE: PASS
+WINDOW_CAPABILITY_SMOKE: PASS
+```
+
 The script intentionally does not use normal system Python for Blender-facing
 checks. Pure-Python regression tests remain:
 
@@ -49,5 +64,5 @@ Example:
 In addition to normal batch outputs (`batch-report.json`, `review-queue.json`,
 `library-index.json`), the real-asset runner writes `hardening-report.json` with
 conversion/automatic-acceptance rates, class/format metrics, normalized review
-reasons, semantic refinement frequency, unresolved member samples and generator
-messages for hardening diagnostics.
+reasons, semantic refinement frequency, semantic capability flags, unresolved
+member samples and generator messages for hardening diagnostics.
