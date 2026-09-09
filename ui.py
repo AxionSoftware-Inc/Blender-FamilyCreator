@@ -12,6 +12,7 @@ from .core import (
 from .family_types import get_family_type
 from .family_types.parameter_specs import get_parameter_specs, property_name
 from .generators import supports_generation
+from .hosting import hosting_metadata
 from .quality import validate_family
 from .typed import ensure_semantic_parameters
 
@@ -68,6 +69,34 @@ def _draw_quality(layout, root):
         box.label(text=warning, icon="INFO")
     for error in quality.get("errors", ()):
         box.label(text=error, icon="ERROR")
+
+
+def _draw_hosting(layout, root):
+    data = hosting_metadata(root)
+    if data is None:
+        return
+
+    box = layout.box()
+    box.label(text="BIM Hosting / Placement", icon="HOME")
+    box.label(text=f"Host: {data['hostType']}  |  Cut: {data['opening']['shape']}")
+    box.label(text=f"Insertion: {data['insertionPoint']}")
+    box.label(text=f"Facing: +Y  |  Up: +Z")
+    opening = data["opening"]
+    box.label(
+        text=(
+            f"Opening: {opening['width']:.3f} × {opening['height']:.3f} × "
+            f"{opening['depth']:.3f} m"
+        )
+    )
+    if root.bfc_family_kind == "WINDOW":
+        box.label(text=f"Sill elevation: {data['elevationFromLevel']:.3f} m")
+    flags = []
+    if data.get("canFlipFacing"):
+        flags.append("Facing flip")
+    if data.get("canFlipHand"):
+        flags.append("Hand flip")
+    if flags:
+        box.label(text="Runtime: " + ", ".join(flags))
 
 
 def _draw_generator(layout, root):
@@ -128,6 +157,7 @@ class BFC_PT_main(Panel):
         header.label(text="Change class, then Apply Family Class Logic.")
 
         _draw_quality(layout, root)
+        _draw_hosting(layout, root)
 
         editable = set(spec.get("editable_axes", ()))
         axis_parameters = spec.get("axis_parameters", {})
