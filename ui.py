@@ -36,13 +36,18 @@ def _draw_prepare(layout, scene):
 def _draw_batch_factory(layout, scene):
     batch = layout.box()
     batch.label(text="Batch Family Factory", icon="FILE_FOLDER")
-    batch.label(text="Convert a whole model folder using one exact Family Class.")
+    batch.label(text="Convert one exact class or a folder-organized mixed library.")
     batch.prop(scene, "bfc_batch_input_directory")
     batch.prop(scene, "bfc_batch_output_directory")
     batch.prop(scene, "bfc_batch_family_kind")
 
-    spec = get_family_type(scene.bfc_batch_family_kind)
-    batch.label(text=spec["description"])
+    if scene.bfc_batch_family_kind == "AUTO_FOLDER":
+        batch.label(text="Exact class comes from recognized parent folder names.", icon="INFO")
+        batch.label(text="Examples: sofas/, tables/, doors/, windows/, stairs/.")
+        batch.label(text="Unknown folders are rejected; there is no silent guessing.")
+    else:
+        spec = get_family_type(scene.bfc_batch_family_kind)
+        batch.label(text=spec["description"])
 
     row = batch.row(align=True)
     row.prop(scene, "bfc_batch_recursive")
@@ -56,6 +61,7 @@ def _draw_batch_factory(layout, scene):
     batch.prop(scene, "bfc_batch_continue_on_error")
     batch.operator("bfc.batch_convert", icon="EXPORT")
     batch.label(text="Supports .blend, .fbx, .glb, .gltf and .obj")
+    batch.label(text="Batch output also rebuilds library-index.json.")
     if scene.bfc_batch_last_result:
         batch.label(text=scene.bfc_batch_last_result, icon="INFO")
 
