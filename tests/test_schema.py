@@ -36,6 +36,36 @@ BASE_MANIFEST = {
         }
     ],
     "materials": [],
+    "runtimeProxy": {
+        "coordinateSystem": "RIGHT_HANDED_Z_UP",
+        "selection": {
+            "shape": "AABB",
+            "min": [-0.6, -0.4, -0.375],
+            "max": [0.6, 0.4, 0.375],
+            "center": [0.0, 0.0, 0.0],
+            "size": [1.2, 0.8, 0.75],
+        },
+        "collision": {
+            "shape": "AABB",
+            "coarse": True,
+            "center": [0.0, 0.0, 0.0],
+            "size": [1.2, 0.8, 0.75],
+        },
+        "planFootprint": {
+            "shape": "RECTANGLE",
+            "min": [-0.6, -0.4],
+            "max": [0.6, 0.4],
+            "baseZ": -0.375,
+        },
+        "typeBounds": {
+            "Default": {
+                "min": [-0.6, -0.4, -0.375],
+                "max": [0.6, 0.4, 0.375],
+                "center": [0.0, 0.0, 0.0],
+                "size": [1.2, 0.8, 0.75],
+            }
+        },
+    },
     "quality": {"ready": True, "automaticReady": True},
     "generator": {"supported": True, "revision": 1},
 }
@@ -93,6 +123,12 @@ class FamilySchemaTests(unittest.TestCase):
             "height": 0.75,
             "semanticParameters": {"top_thickness": 0.04},
         }
+        data["runtimeProxy"]["typeBounds"]["Wide"] = {
+            "min": [-0.9, -0.4, -0.375],
+            "max": [0.9, 0.4, 0.375],
+            "center": [0.0, 0.0, 0.0],
+            "size": [1.8, 0.8, 0.75],
+        }
         data["geometryVariants"] = {
             "Default": {"uri": "test_table.glb", "baked": True, "primary": True},
             "Wide": {"uri": "variants/wide.glb", "baked": True, "primary": False},
@@ -111,6 +147,12 @@ class FamilySchemaTests(unittest.TestCase):
             "depth": 0.8,
             "height": 0.75,
             "semanticParameters": {"top_thickness": 0.04},
+        }
+        data["runtimeProxy"]["typeBounds"]["Wide"] = {
+            "min": [-0.9, -0.4, -0.375],
+            "max": [0.9, 0.4, 0.375],
+            "center": [0.0, 0.0, 0.0],
+            "size": [1.8, 0.8, 0.75],
         }
         data["geometryVariants"] = {
             "Default": {"uri": "test_table.glb", "baked": True, "primary": False},
@@ -167,6 +209,23 @@ class FamilySchemaTests(unittest.TestCase):
         data["exportWarnings"] = [123]
         errors = validate_manifest(data)
         self.assertTrue(any("exportWarnings" in error for error in errors))
+
+    def test_rejects_invalid_runtime_proxy_size(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["runtimeProxy"]["selection"]["size"][0] = 0.0
+        errors = validate_manifest(data)
+        self.assertTrue(any("runtimeProxy.selection.size" in error for error in errors))
+
+    def test_rejects_runtime_proxy_unknown_type(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["runtimeProxy"]["typeBounds"]["Ghost"] = {
+            "min": [-0.5, -0.5, -0.5],
+            "max": [0.5, 0.5, 0.5],
+            "center": [0.0, 0.0, 0.0],
+            "size": [1.0, 1.0, 1.0],
+        }
+        errors = validate_manifest(data)
+        self.assertTrue(any("does not match a saved Family Type" in error for error in errors))
 
 
 if __name__ == "__main__":
