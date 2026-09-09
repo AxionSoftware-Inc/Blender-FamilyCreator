@@ -24,6 +24,13 @@ def _manifest(family_id, name, family_kind, automatic_ready=True):
         "materials": [],
         "geometryVariants": {
             "Default": {"uri": f"{name.lower()}.glb", "baked": True, "primary": True},
+            "Wide": {"uri": "variants/wide.glb", "baked": True, "primary": False},
+        },
+        "thumbnail": {
+            "uri": f"{name.lower()}.thumbnail.png",
+            "width": 512,
+            "height": 512,
+            "format": "PNG",
         },
     }
 
@@ -45,7 +52,13 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(payload["automaticReady"], 1)
             self.assertEqual(payload["needsReview"], 1)
             self.assertEqual(payload["classCounts"], {"SOFA": 1, "TABLE": 1})
-            self.assertEqual(payload["families"][0]["familyId"], "axion:sofa:a")
+
+            first = payload["families"][0]
+            self.assertEqual(first["familyId"], "axion:sofa:a")
+            self.assertEqual(first["manifest"], "sofa/A/a.family.json")
+            self.assertEqual(first["geometryVariants"]["Default"], "sofa/A/a.glb")
+            self.assertEqual(first["geometryVariants"]["Wide"], "sofa/A/variants/wide.glb")
+            self.assertEqual(first["thumbnail"], "sofa/A/a.thumbnail.png")
 
     def test_rejects_duplicate_family_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
