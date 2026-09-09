@@ -13,7 +13,10 @@ REQUIRED_ROLE_GROUPS = {
     "KITCHEN_BASE": (("SIDE_LEFT", "SIDE_RIGHT", "CARCASS", "TOP", "BOTTOM"),),
     "KITCHEN_WALL": (("SIDE_LEFT", "SIDE_RIGHT", "CARCASS", "TOP", "BOTTOM"),),
     "DOOR": (("DOOR_LEAF", "PANEL"), ("FRAME_LEFT", "FRAME_RIGHT", "FRAME_HEAD")),
-    "WINDOW": (("GLASS", "WINDOW_SASH", "PANEL"), ("FRAME_LEFT", "FRAME_RIGHT", "FRAME_HEAD")),
+    # A Window can be a valid baked/runtime family even when its vendor mesh
+    # does not expose a separate editable frame object. Separate frame members
+    # are a procedural capability, not a validity requirement.
+    "WINDOW": (("GLASS", "WINDOW_SASH", "PANEL"),),
     "STAIR": (("TREAD",),),
     "TOILET": (("BOWL", "BASE"),),
     "SINK": (("BASIN",),),
@@ -27,7 +30,10 @@ RECOMMENDED_ROLE_GROUPS = {
     "CHAIR": (("LEG", "FRAME"),),
     "BED": (("BASE",),),
     "DOOR": (("HANDLE", "HARDWARE", "HINGE"),),
-    "WINDOW": (("GLASS",),),
+    # WINDOW intentionally has no mandatory separate GLASS/frame recommendation:
+    # many vendor sash meshes bake glazing/frame together. The capability block
+    # below records what is editable without forcing a valid baked family into
+    # the review queue.
     "STAIR": (("RISER", "STRINGER"),),
     "TOILET": (("CONNECTOR",),),
     "SINK": (("DRAIN", "CONNECTOR"),),
@@ -49,6 +55,28 @@ def _missing_groups(role_counts, groups):
         if not any(role_counts.get(role, 0) > 0 for role in alternatives):
             missing.append(list(alternatives))
     return missing
+
+
+def _semantic_capabilities(family_kind, role_counts):
+    if family_kind != "WINDOW":
+        return {}
+
+    separate_frame = any(
+        role_counts.get(role, 0) > 0
+        for role in ("FRAME_LEFT", "FRAME_RIGHT", "FRAME_HEAD", "FRAME_SILL", "MULLION")
+    )
+    separate_glass = role_counts.get("GLASS", 0) > 0
+    sash_or_panel = any(
+        role_counts.get(role, 0) > 0
+        for role in ("WINDOW_SASH", "PANEL")
+    )
+    return {
+        "separateFrame": separate_frame,
+        "separateGlass": separate_glass,
+        "parametricFrameWidth": separate_frame,
+        "materialAddressableGlass": separate_glass,
+        "bakedSashOrPanel": sash_or_panel,
+    }
 
 
 def _unknown_member_samples(root, members, roles, limit=12):
@@ -102,6 +130,7 @@ def validate_family(root):
     recommended_groups = RECOMMENDED_ROLE_GROUPS.get(family_kind, ())
     missing_groups = _missing_groups(role_counts, required_groups)
     missing_recommended = _missing_groups(role_counts, recommended_groups)
+    capabilities = _semantic_capabilities(family_kind, role_counts)
 
     warnings = []
     errors = []
@@ -149,6 +178,7 @@ def validate_family(root):
         "roleCoverage": coverage,
         "roleCounts": role_counts,
         "roleRefinementCounts": refinement_counts,
+        "semanticCapabilities": capabilities,
         "unknownMemberSamples": _unknown_member_samples(root, members, roles),
         "missingRoleGroups": missing_groups,
         "missingRecommendedRoleGroups": missing_recommended,
