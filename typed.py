@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from . import core
 from .family_types import get_family_type
@@ -14,6 +15,7 @@ from .hosting import hosting_metadata
 from .materials import family_material_metadata
 from .quality import validate_family
 from .schema import assert_valid_manifest
+from .thumbnail import DEFAULT_THUMBNAIL_SIZE, render_family_thumbnail
 from .variants import export_baked_type_variants
 
 
@@ -285,13 +287,25 @@ def _remove_partial_export(manifest_path, glb_path, extra_paths=()):
             pass
 
 
-def export_typed_family(root, directory, export_glb=True, export_baked_types=False):
+def _thumbnail_path(directory, root):
+    return Path(directory) / f"{core.slugify(root.bfc_family_name)}.thumbnail.png"
+
+
+def export_typed_family(
+    root,
+    directory,
+    export_glb=True,
+    export_baked_types=False,
+    export_thumbnail=False,
+    thumbnail_size=DEFAULT_THUMBNAIL_SIZE,
+):
     manifest_path, glb_path = core.export_family(root, directory, export_glb)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     data.update(typed_manifest_metadata(root))
     _inject_member_roles(root, data)
 
     variant_files = []
+    thumbnail_path = None
     try:
         if glb_path is not None:
             variant_result = export_baked_type_variants(
@@ -308,10 +322,31 @@ def export_typed_family(root, directory, export_glb=True, export_baked_types=Fal
                 "variantCount": len(data["geometryVariants"]),
             }
 
+        if export_thumbnail:
+            thumbnail_path = _thumbnail_path(directory, root)
+            try:
+                data["thumbnail"] = render_family_thumbnail(
+                    root,
+                    thumbnail_path,
+                    size=thumbnail_size,
+                )
+            except Exception as exc:
+                try:
+                    thumbnail_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                thumbnail_path = None
+                data.setdefault("exportWarnings", []).append(
+                    f"Thumbnail render failed: {exc}"
+                )
+
         assert_valid_manifest(data)
         manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception:
-        _remove_partial_export(manifest_path, glb_path, variant_files)
+        extras = list(variant_files)
+        if thumbnail_path is not None:
+            extras.append(thumbnail_path)
+        _remove_partial_export(manifest_path, glb_path, extras)
         raise
 
     return manifest_path, glb_path
