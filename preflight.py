@@ -1,3 +1,5 @@
+import re
+
 from . import core
 
 
@@ -44,6 +46,9 @@ TYPICAL_MIN_DIMENSION = {
 }
 
 
+_GENERIC_OBJECT_NAME = re.compile(r"^(?:cube|object|mesh|plane|cylinder|sphere|cone|curve)(?:[._ -]?\d+)?$", re.IGNORECASE)
+
+
 def _source_members(root):
     return [
         obj
@@ -78,6 +83,24 @@ def _scale_flags(matrix):
     return non_unit, non_uniform
 
 
+def _source_text(root):
+    values = [
+        str(getattr(root, "bfc_family_name", "") or ""),
+        str(root.get("bfc_source_asset", "") or ""),
+        str(root.get("bfc_source_key", "") or ""),
+    ]
+    return " ".join(values).lower().replace("_", "-")
+
+
+def _mixed_scene_name_hint(root, family_kind):
+    text = _source_text(root)
+    if family_kind == "TABLE":
+        return "table" in text and any(token in text for token in ("chair", "stool", "bench", "seating"))
+    if family_kind == "BED":
+        return "bed" in text and any(token in text for token in ("nightstand", "bedside-table", "bedside cabinet"))
+    return False
+
+
 def inspect_family(root):
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     members = _source_members(root)
@@ -92,10 +115,16 @@ def inspect_family(root):
         "negativeDeterminantMembers": 0,
         "shapeKeyMembers": 0,
         "armatureMembers": 0,
+        "genericNamedMembers": 0,
+        "genericNameShare": 0.0,
+        "mixedSceneNameHint": False,
     }
 
     for obj in members:
         stats["meshPolygons"] += _mesh_polygon_count(obj)
+        if _GENERIC_OBJECT_NAME.match(str(getattr(obj, "name", "") or "").strip()):
+            stats["genericNamedMembers"] += 1
+
         matrix = _canonical_matrix(obj)
         non_unit, non_uniform = _scale_flags(matrix)
         if non_unit:
@@ -115,6 +144,9 @@ def inspect_family(root):
         if any(modifier.type == "ARMATURE" for modifier in getattr(obj, "modifiers", ())):
             stats["armatureMembers"] += 1
 
+    if members:
+        stats["genericNameShare"] = float(stats["genericNamedMembers"]) / float(len(members))
+
     if stats["meshPolygons"] > POLYGON_HEAVY_THRESHOLD:
         severe.append(f"Very heavy source geometry: {stats['meshPolygons']:,} polygons")
     elif stats["meshPolygons"] > POLYGON_REVIEW_THRESHOLD:
@@ -131,6 +163,12 @@ def inspect_family(root):
         warnings.append(f"{stats['shapeKeyMembers']} source member(s) contain shape keys")
     if stats["armatureMembers"]:
         warnings.append(f"{stats['armatureMembers']} source member(s) use armature modifiers")
+
+    stats["mixedSceneNameHint"] = _mixed_scene_name_hint(root, family_kind)
+    if stats["mixedSceneNameHint"]:
+        warnings.append(
+            "Source name suggests a mixed/multi-item set; review family isolation before automatic acceptance"
+        )
 
     dims = (
         abs(float(root.bfc_width)),
