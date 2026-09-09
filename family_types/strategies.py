@@ -50,6 +50,27 @@ def classify_member_role(type_id, spans, signed_centers, name=""):
     return classifier(spans, signed_centers, name=name)
 
 
+def refine_member_roles(type_id, members, family_dims):
+    """Optionally refine per-member roles using the whole family context.
+
+    First-pass classifiers intentionally remain cheap and local. Real vendor
+    assets sometimes need family-level comparison (for example selecting the
+    upper broad slab as a BED mattress, or filling missing WINDOW frame edges
+    from otherwise ambiguous Cube.xxx parts). Class modules may implement
+    ``refine_roles(members, family_dims)`` and return a list with the same
+    length. Invalid/partial refinements are ignored rather than corrupting the
+    first-pass result.
+    """
+    module = family_module(type_id)
+    refinement = getattr(module, "refine_roles", None)
+    if refinement is None:
+        return members
+    values = refinement(members, family_dims)
+    if not isinstance(values, list) or len(values) != len(members):
+        return members
+    return values
+
+
 def infer_semantic_parameters(type_id, members, family_dims):
     module = family_module(type_id)
     inference = getattr(module, "infer_semantic_parameters", None)
