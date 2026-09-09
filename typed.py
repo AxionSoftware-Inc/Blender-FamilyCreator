@@ -8,6 +8,7 @@ from .family_types.strategies import (
     classify_member_role,
     infer_member_rules,
     infer_semantic_parameters,
+    refine_member_roles,
 )
 from .generators import rebuild_family_geometry, supports_generation
 from .hierarchy import create_family_preserving_hierarchy
@@ -108,6 +109,7 @@ def capture_typed_family(root):
         max(abs(root.bfc_base_height), 1e-9),
     )
     member_infos = []
+    member_objects = []
 
     root["bfc_applying"] = True
     try:
@@ -121,7 +123,6 @@ def capture_typed_family(root):
             center = (mins + maxs) * 0.5
 
             spans = []
-            absolute_centers = []
             signed_centers = []
             for index in range(3):
                 size = family_dims[index]
@@ -129,22 +130,9 @@ def capture_typed_family(root):
                 half = size * 0.5
                 signed = center[index] / half if half > 1e-9 else 0.0
                 signed_centers.append(signed)
-                absolute_centers.append(abs(signed))
 
             role = classify_member_role(family_kind, spans, signed_centers, name=obj.name)
-            obj.bfc_member_role = role
-
-            rules = infer_member_rules(
-                family_kind,
-                spans,
-                absolute_centers,
-                name=obj.name,
-                role=role,
-            )
-            obj.bfc_rule_x = rules["X"]
-            obj.bfc_rule_y = rules["Y"]
-            obj.bfc_rule_z = rules["Z"]
-
+            member_objects.append(obj)
             member_infos.append({
                 "name": obj.name,
                 "role": role,
@@ -155,6 +143,30 @@ def capture_typed_family(root):
                 "normalized_span": tuple(float(v) for v in spans),
                 "normalized_center": tuple(float(v) for v in signed_centers),
             })
+
+        member_infos = refine_member_roles(family_kind, member_infos, family_dims)
+
+        # Apply only the final/refined role set to Blender RNA properties. This
+        # keeps the first-pass classifier cheap while allowing family-level
+        # second-pass logic to resolve ambiguous vendor parts without triggering
+        # update callbacks halfway through semantic capture.
+        for obj, info in zip(member_objects, member_infos):
+            role = info.get("role", "UNKNOWN") or "UNKNOWN"
+            spans = info.get("normalized_span", (0.0, 0.0, 0.0))
+            signed_centers = info.get("normalized_center", (0.0, 0.0, 0.0))
+            absolute_centers = tuple(abs(float(value)) for value in signed_centers)
+
+            obj.bfc_member_role = role
+            rules = infer_member_rules(
+                family_kind,
+                spans,
+                absolute_centers,
+                name=obj.name,
+                role=role,
+            )
+            obj.bfc_rule_x = rules["X"]
+            obj.bfc_rule_y = rules["Y"]
+            obj.bfc_rule_z = rules["Z"]
     finally:
         root["bfc_applying"] = False
 
