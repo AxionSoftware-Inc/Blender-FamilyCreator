@@ -56,8 +56,12 @@ def validate_family(root):
     members = _source_members(root)
     roles = [getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN" for obj in members]
     role_counts = {}
-    for role in roles:
+    refinement_counts = {}
+    for obj, role in zip(members, roles):
         role_counts[role] = role_counts.get(role, 0) + 1
+        refinement = str(obj.get("bfc_role_refinement", "") or "").strip()
+        if refinement:
+            refinement_counts[refinement] = refinement_counts.get(refinement, 0) + 1
 
     known = sum(count for role, count in role_counts.items() if role != "UNKNOWN")
     total = len(members)
@@ -113,6 +117,7 @@ def validate_family(root):
         "sourceMembers": total,
         "roleCoverage": coverage,
         "roleCounts": role_counts,
+        "roleRefinementCounts": refinement_counts,
         "missingRoleGroups": missing_groups,
         "missingRecommendedRoleGroups": missing_recommended,
         "preflight": preflight,
