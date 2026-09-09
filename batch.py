@@ -4,7 +4,6 @@ from pathlib import Path
 
 import bpy
 
-from . import core
 from .core import SUPPORTED_TYPES
 from .generators import rebuild_family_geometry, supports_generation
 from .prepare import DEFAULT_MAX_LOOSE_ISLANDS, auto_prepare_objects
@@ -147,11 +146,7 @@ def _prepare_imported(context, imported, auto_split_loose, max_loose_islands):
             "reports": [],
         }
 
-    prepared = auto_prepare_objects(
-        context,
-        imported,
-        max_islands=max_loose_islands,
-    )
+    prepared = auto_prepare_objects(context, imported, max_islands=max_loose_islands)
     return prepared["objects"], {
         "enabled": True,
         "split_objects": prepared["split_objects"],
@@ -212,7 +207,7 @@ def convert_asset(
             "generator": generator_result,
             "quality_before": quality_before,
             "quality": quality_after,
-            "needs_review": not bool(quality_after.get("ready", False)),
+            "needs_review": not bool(quality_after.get("automaticReady", False)),
         }
     finally:
         _cleanup_import(imported, root=root, owned_datablocks=owned_datablocks)
@@ -240,8 +235,11 @@ def _review_queue_payload(report):
             "manifest": item.get("manifest"),
             "glb": item.get("glb"),
             "score": quality.get("score"),
+            "automaticReady": quality.get("automaticReady"),
             "roleCoverage": quality.get("roleCoverage"),
             "missingRoleGroups": quality.get("missingRoleGroups", []),
+            "missingRecommendedRoleGroups": quality.get("missingRecommendedRoleGroups", []),
+            "preflight": quality.get("preflight", {}),
             "warnings": quality.get("warnings", []),
             "errors": quality.get("errors", []),
             "generator": item.get("generator"),
@@ -268,8 +266,6 @@ def _finalize_report(output_directory, report):
 
     report_path = _write_json(output_directory, "batch-report.json", report)
     report["report_path"] = str(report_path)
-
-    # Rewrite once so batch-report.json also contains its own final paths.
     _write_json(output_directory, "batch-report.json", report)
     return report
 
