@@ -9,6 +9,7 @@ from .family_types.strategies import (
     infer_semantic_parameters,
 )
 from .generators import rebuild_family_geometry, supports_generation
+from .hierarchy import create_family_preserving_hierarchy
 from .hosting import hosting_metadata
 from .materials import family_material_metadata
 from .quality import validate_family
@@ -95,7 +96,7 @@ def apply_inferred_semantic_parameter_values(root, values, family_kind=None):
 
 
 def capture_typed_family(root):
-    """Capture source/template members, never generated copies."""
+    """Capture source/template members, never generated copies or hierarchy helpers."""
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     family_dims = (
         max(abs(root.bfc_base_width), 1e-9),
@@ -175,7 +176,7 @@ def apply_family_kind(root, family_kind, recapture=True):
 
 
 def create_typed_family(context, objects, name, family_kind):
-    root = core.create_family(context, objects, name)
+    root = create_family_preserving_hierarchy(context, objects, name)
     apply_family_kind(root, family_kind, recapture=True)
     save_typed_type(root, "Default", overwrite=True)
     return root
@@ -249,6 +250,14 @@ def typed_manifest_metadata(root):
             "roleCounts": role_counts,
         },
     }
+
+    source_asset = str(root.get("bfc_source_asset", "") or "").strip()
+    source_key = str(root.get("bfc_source_key", "") or "").strip()
+    if source_asset or source_key:
+        metadata["source"] = {
+            "asset": source_asset or None,
+            "key": source_key or None,
+        }
 
     hosting = hosting_metadata(root)
     if hosting is not None:
