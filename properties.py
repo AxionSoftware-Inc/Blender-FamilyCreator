@@ -15,8 +15,6 @@ def _rebuild_after_dimension_change(root):
         root["bfc_generator_last_message"] = result.get("message", "")
         root["bfc_generator_last_error"] = ""
     except Exception as exc:
-        # Dimension editing should remain usable even when a class-specific
-        # generator needs manual cleanup. Quality/review can surface the issue.
         root["bfc_generator_last_error"] = str(exc)
 
 
@@ -110,6 +108,11 @@ def register_properties():
     bpy.types.Scene.bfc_bind_expression = StringProperty(name="Expression", default="p")
     bpy.types.Scene.bfc_export_directory = StringProperty(name="Export Folder", subtype="DIR_PATH")
     bpy.types.Scene.bfc_export_glb = BoolProperty(name="Export GLB", default=True)
+    bpy.types.Scene.bfc_export_baked_types = BoolProperty(
+        name="Bake All Saved Types",
+        description="Export a GLB geometry variant for every saved Family Type",
+        default=True,
+    )
 
     bpy.types.Scene.bfc_batch_input_directory = StringProperty(
         name="Asset Folder",
@@ -134,6 +137,11 @@ def register_properties():
         default=True,
     )
     bpy.types.Scene.bfc_batch_export_glb = BoolProperty(name="Export GLB", default=True)
+    bpy.types.Scene.bfc_batch_export_baked_types = BoolProperty(
+        name="Bake All Saved Types",
+        description="Bake saved Family Types into separate GLB variants during batch export",
+        default=True,
+    )
     bpy.types.Scene.bfc_batch_continue_on_error = BoolProperty(
         name="Continue on Error",
         description="Skip failed assets and continue converting the rest of the folder",
@@ -162,10 +170,10 @@ def unregister_properties():
         "bfc_prepare_max_islands", "bfc_prepare_last_result",
         "bfc_type_query", "bfc_param_name", "bfc_param_default", "bfc_bind_param",
         "bfc_bind_data_path", "bfc_bind_index", "bfc_bind_expression",
-        "bfc_export_directory", "bfc_export_glb",
+        "bfc_export_directory", "bfc_export_glb", "bfc_export_baked_types",
         "bfc_batch_input_directory", "bfc_batch_output_directory", "bfc_batch_family_kind",
         "bfc_batch_recursive", "bfc_batch_auto_split_loose", "bfc_batch_export_glb",
-        "bfc_batch_continue_on_error", "bfc_batch_last_result",
+        "bfc_batch_export_baked_types", "bfc_batch_continue_on_error", "bfc_batch_last_result",
     ]
     for name in scene_names:
         if hasattr(bpy.types.Scene, name):
