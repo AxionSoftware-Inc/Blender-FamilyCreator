@@ -104,6 +104,7 @@ def build_hardening_report(report):
     })
     reason_counts = Counter()
     compact_reason_counts = Counter()
+    refinement_counts = Counter()
     reason_examples = defaultdict(list)
     asset_summaries = []
 
@@ -115,6 +116,9 @@ def build_hardening_report(report):
         source_format = _source_format(source)
         preflight = quality.get("preflight", {}) if isinstance(quality.get("preflight"), dict) else {}
         preflight_stats = preflight.get("stats", {}) if isinstance(preflight.get("stats"), dict) else {}
+        role_refinements = quality.get("roleRefinementCounts", {})
+        if not isinstance(role_refinements, dict):
+            role_refinements = {}
 
         class_stats = by_class[family_kind]
         class_stats["converted"] += 1
@@ -130,6 +134,12 @@ def build_hardening_report(report):
         format_stats["automaticReady"] += int(automatic_ready)
         format_stats["needsReview"] += int(not automatic_ready)
 
+        for refinement, count in role_refinements.items():
+            try:
+                refinement_counts[str(refinement)] += int(count)
+            except Exception:
+                continue
+
         item_reasons = review_reasons(item)
         compact_reasons = sorted({_reason_code(reason) for reason in item_reasons})
         asset_summaries.append({
@@ -140,6 +150,7 @@ def build_hardening_report(report):
             "automaticReady": automatic_ready,
             "score": int(quality.get("score", 0) or 0),
             "roleCoverage": float(quality.get("roleCoverage", 0.0) or 0.0),
+            "roleRefinements": dict(sorted((str(key), int(value)) for key, value in role_refinements.items())),
             "reasons": compact_reasons,
             "detailedReasons": item_reasons,
         })
@@ -167,6 +178,7 @@ def build_hardening_report(report):
             "automaticReady": False,
             "score": 0,
             "roleCoverage": 0.0,
+            "roleRefinements": {},
             "reasons": ["CONVERSION_FAILED"],
             "detailedReasons": ["CONVERSION_FAILED"],
             "error": str(error.get("error", "") if isinstance(error, dict) else error),
@@ -241,6 +253,7 @@ def build_hardening_report(report):
         "byClass": normalized_classes,
         "byFormat": normalized_formats,
         "reasonFrequency": dict(sorted(compact_reason_counts.items())),
+        "refinementFrequency": dict(sorted(refinement_counts.items())),
         "reviewReasons": top_reasons,
         "assets": asset_summaries,
     }
