@@ -157,6 +157,12 @@ def capture_typed_family(root):
             absolute_centers = tuple(abs(float(value)) for value in signed_centers)
 
             obj.bfc_member_role = role
+            refinement = str(info.get("roleRefinement", "") or "").strip()
+            if refinement:
+                obj["bfc_role_refinement"] = refinement
+            elif "bfc_role_refinement" in obj:
+                del obj["bfc_role_refinement"]
+
             rules = infer_member_rules(
                 family_kind,
                 spans,
@@ -281,12 +287,19 @@ def typed_manifest_metadata(root):
 
 
 def _inject_member_roles(root, data):
-    roles = {
-        obj.name: (getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN")
+    member_metadata = {
+        obj.name: {
+            "role": (getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"),
+            "roleRefinement": str(obj.get("bfc_role_refinement", "") or "").strip(),
+        }
         for obj in core.exportable_family_members(root)
     }
     for member in data.get("members", []):
-        member["role"] = roles.get(member.get("name"), "UNKNOWN")
+        metadata = member_metadata.get(member.get("name"), {})
+        member["role"] = metadata.get("role", "UNKNOWN")
+        refinement = metadata.get("roleRefinement")
+        if refinement:
+            member["roleRefinement"] = refinement
 
 
 def _remove_partial_export(manifest_path, glb_path, extra_paths=()):
