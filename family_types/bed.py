@@ -30,15 +30,23 @@ def classify_role(spans, centers, name=""):
     if name_has(name, "pillow", "blanket", "duvet", "decor"):
         return ROLE_DECOR
 
-    if sx >= 0.60 and sy >= 0.60 and sz <= 0.35 and cz >= 0.0:
-        return ROLE_MATTRESS
-    if sx >= 0.55 and sy <= 0.20 and sz >= 0.45 and abs(cy) >= 0.55:
+    # Vendor assets commonly use generic names such as Cube.014.  The original
+    # mattress fallback required cz >= 0, which is too strict when a tall
+    # headboard shifts the family envelope upward.  Prefer the upper broad,
+    # shallow horizontal slab as the mattress while keeping lower broad slabs
+    # as the bed base/platform.
+    if sx >= 0.52 and sy >= 0.52 and sz <= 0.48:
+        if cz >= -0.32:
+            return ROLE_MATTRESS
+        return ROLE_BASE
+
+    if sx >= 0.50 and sy <= 0.24 and sz >= 0.42 and abs(cy) >= 0.42:
         return ROLE_HEADBOARD if cy >= 0.0 else ROLE_FOOTBOARD
-    if sx <= 0.20 and sy <= 0.20 and sz <= 0.45 and abs(cx) >= 0.55 and abs(cy) >= 0.55:
+    if sx <= 0.24 and sy <= 0.24 and sz <= 0.50 and abs(cx) >= 0.45 and abs(cy) >= 0.45:
         return ROLE_LEG
-    if sx >= 0.55 and sy <= 0.18 and sz <= 0.20:
+    if sx >= 0.45 and sy <= 0.22 and sz <= 0.24:
         return ROLE_SLAT
-    if sx >= 0.50 and sy >= 0.50:
+    if sx >= 0.45 and sy >= 0.45:
         return ROLE_BASE
     return ROLE_UNKNOWN
 
