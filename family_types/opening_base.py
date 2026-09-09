@@ -32,6 +32,13 @@ def _horizontal_frame_like(sx, sz):
     return sz <= 0.36 and sx >= 0.35 and sz <= sx * 0.65
 
 
+def _frame_named(name):
+    # Vendor assets frequently contain truncated/typo variants such as
+    # "L fram _Part_02". Keep this narrower than a raw "fram" substring so
+    # unrelated words do not become frame semantics.
+    return name_has(name, "jamb", "stile", "frame", "casing", " fram ", "fram_", "fram-")
+
+
 def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
     sx, sy, sz = spans
     cx, cy, cz = centers
@@ -40,7 +47,7 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
         return ROLE_HANDLE
     if name_has(name, "hinge"):
         return ROLE_HINGE
-    if name_has(name, "lock", "latch", "hardware"):
+    if name_has(name, "lock", "latch", "hardware", "bolt", "screw", "fastener", "clip"):
         return ROLE_HARDWARE
     if name_has(name, "glass", "glazing", "pane"):
         return ROLE_GLASS
@@ -49,12 +56,16 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
     if name_has(name, "panel", "leaf", "door_leaf", "sash"):
         return panel_role
 
-    if name_has(name, "jamb", "stile", "frame", "casing"):
-        if abs(cx) >= 0.38 and _vertical_frame_like(sx, sz):
+    if _frame_named(name):
+        # A semantic frame-ish name is stronger evidence than geometry alone,
+        # so allow a slightly more interior center than the generic fallback.
+        # This covers curved/L-shaped frames whose bbox center is not at the
+        # extreme family edge while retaining orientation checks.
+        if abs(cx) >= 0.26 and _vertical_frame_like(sx, sz):
             return ROLE_FRAME_LEFT if cx < 0.0 else ROLE_FRAME_RIGHT
-        if cz >= 0.38 and _horizontal_frame_like(sx, sz):
+        if cz >= 0.26 and _horizontal_frame_like(sx, sz):
             return ROLE_FRAME_HEAD
-        if cz <= -0.38 and _horizontal_frame_like(sx, sz):
+        if cz <= -0.26 and _horizontal_frame_like(sx, sz):
             return ROLE_FRAME_SILL
 
     if name_has(name, "head", "header"):
@@ -82,6 +93,12 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
         return ROLE_MULLION
     if abs(cz) < 0.45 and sz <= 0.24 and sx >= 0.40 and sz <= sx * 0.55:
         return ROLE_MULLION
+
+    # Tiny opening parts are commonly bolts, clips, glazing retainers or other
+    # hardware. Treating them as HARDWARE is safer than stretching them as
+    # structural members and materially improves vendor-model role coverage.
+    if sx <= 0.10 and sz <= 0.15 and sy <= 0.35:
+        return ROLE_HARDWARE
 
     if sx >= 0.35 and sz >= 0.35:
         return panel_role
@@ -135,9 +152,9 @@ def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
     if role in {ROLE_PANEL, ROLE_GLASS, "DOOR_LEAF", "WINDOW_SASH"}:
         return "STRETCH"
 
-    if name_has(name, "handle", "hinge", "lock"):
+    if name_has(name, "handle", "hinge", "lock", "bolt", "screw", "fastener", "clip"):
         return "MOVE"
-    if name_has(name, "jamb", "frame", "mullion", "rail", "stile") and edge_member(span_ratio, center_ratio):
+    if (_frame_named(name) or name_has(name, "mullion", "rail")) and edge_member(span_ratio, center_ratio):
         return "MOVE"
     if edge_member(span_ratio, center_ratio):
         return "MOVE"
