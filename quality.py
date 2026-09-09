@@ -51,6 +51,37 @@ def _missing_groups(role_counts, groups):
     return missing
 
 
+def _unknown_member_samples(root, members, roles, limit=12):
+    family_dims = (
+        max(abs(float(root.bfc_base_width)), 1e-9),
+        max(abs(float(root.bfc_base_depth)), 1e-9),
+        max(abs(float(root.bfc_base_height)), 1e-9),
+    )
+    samples = []
+    for obj, role in zip(members, roles):
+        if role != "UNKNOWN":
+            continue
+        sample = {"name": obj.name}
+        try:
+            mins, maxs = core.local_bbox(obj, root)
+            span = maxs - mins
+            center = (mins + maxs) * 0.5
+            normalized_span = []
+            normalized_center = []
+            for index, size in enumerate(family_dims):
+                normalized_span.append(abs(float(span[index])) / size)
+                half = size * 0.5
+                normalized_center.append(float(center[index]) / half if half > 1e-9 else 0.0)
+            sample["normalizedSpan"] = [round(value, 4) for value in normalized_span]
+            sample["normalizedCenter"] = [round(value, 4) for value in normalized_center]
+        except Exception as exc:
+            sample["diagnosticError"] = str(exc)
+        samples.append(sample)
+        if len(samples) >= int(limit):
+            break
+    return samples
+
+
 def validate_family(root):
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     members = _source_members(root)
@@ -118,6 +149,7 @@ def validate_family(root):
         "roleCoverage": coverage,
         "roleCounts": role_counts,
         "roleRefinementCounts": refinement_counts,
+        "unknownMemberSamples": _unknown_member_samples(root, members, roles),
         "missingRoleGroups": missing_groups,
         "missingRecommendedRoleGroups": missing_recommended,
         "preflight": preflight,
