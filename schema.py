@@ -2,8 +2,20 @@ SCHEMA_NAME = "axion.family"
 SCHEMA_VERSION = 2
 
 
+def _number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _positive_number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and float(value) > 0.0
+    return _number(value) and float(value) > 0.0
+
+
+def _numeric_vector(value, length):
+    return (
+        isinstance(value, list)
+        and len(value) == length
+        and all(_number(component) for component in value)
+    )
 
 
 def _validate_dimensions(data, path, errors):
@@ -161,6 +173,66 @@ def _validate_thumbnail(thumbnail, errors):
         errors.append("thumbnail.format is invalid")
 
 
+def _validate_aabb(record, path, errors, require_minmax=True):
+    if not isinstance(record, dict):
+        errors.append(f"{path} must be an object")
+        return
+    if record.get("shape") != "AABB":
+        errors.append(f"{path}.shape must be AABB")
+    if require_minmax:
+        if not _numeric_vector(record.get("min"), 3):
+            errors.append(f"{path}.min must be a 3-number vector")
+        if not _numeric_vector(record.get("max"), 3):
+            errors.append(f"{path}.max must be a 3-number vector")
+    if not _numeric_vector(record.get("center"), 3):
+        errors.append(f"{path}.center must be a 3-number vector")
+    size = record.get("size")
+    if not _numeric_vector(size, 3) or any(float(value) <= 0.0 for value in (size or [])):
+        errors.append(f"{path}.size must be a positive 3-number vector")
+
+
+def _validate_runtime_proxy(proxy, types, errors):
+    if not isinstance(proxy, dict):
+        errors.append("runtimeProxy must be an object")
+        return
+    if proxy.get("coordinateSystem") != "RIGHT_HANDED_Z_UP":
+        errors.append("runtimeProxy.coordinateSystem is invalid")
+
+    _validate_aabb(proxy.get("selection"), "runtimeProxy.selection", errors)
+    _validate_aabb(proxy.get("collision"), "runtimeProxy.collision", errors, require_minmax=False)
+
+    footprint = proxy.get("planFootprint")
+    if not isinstance(footprint, dict):
+        errors.append("runtimeProxy.planFootprint must be an object")
+    else:
+        if footprint.get("shape") != "RECTANGLE":
+            errors.append("runtimeProxy.planFootprint.shape must be RECTANGLE")
+        if not _numeric_vector(footprint.get("min"), 2):
+            errors.append("runtimeProxy.planFootprint.min must be a 2-number vector")
+        if not _numeric_vector(footprint.get("max"), 2):
+            errors.append("runtimeProxy.planFootprint.max must be a 2-number vector")
+        if not _number(footprint.get("baseZ")):
+            errors.append("runtimeProxy.planFootprint.baseZ must be numeric")
+
+    type_bounds = proxy.get("typeBounds")
+    if not isinstance(type_bounds, dict):
+        errors.append("runtimeProxy.typeBounds must be an object")
+        return
+    for type_name, bounds in type_bounds.items():
+        path = f"runtimeProxy.typeBounds.{type_name}"
+        if isinstance(types, dict) and type_name not in types:
+            errors.append(f"{path} does not match a saved Family Type")
+        if not isinstance(bounds, dict):
+            errors.append(f"{path} must be an object")
+            continue
+        for field in ("min", "max", "center", "size"):
+            if not _numeric_vector(bounds.get(field), 3):
+                errors.append(f"{path}.{field} must be a 3-number vector")
+        size = bounds.get("size")
+        if _numeric_vector(size, 3) and any(float(value) <= 0.0 for value in size):
+            errors.append(f"{path}.size must be positive")
+
+
 def validate_manifest(data):
     errors = []
     if not isinstance(data, dict):
@@ -198,14 +270,16 @@ def validate_manifest(data):
 
     _validate_dimensions(data.get("baseDimensions"), "baseDimensions", errors)
     _validate_dimensions(data.get("dimensions"), "dimensions", errors)
-    _validate_types(data.get("types"), errors)
-    if isinstance(data.get("types"), dict) and active_type not in data.get("types", {}):
+    types = data.get("types")
+    _validate_types(types, errors)
+    if isinstance(types, dict) and active_type not in types:
         errors.append("activeType must exist in types")
     _validate_members(data.get("members"), errors)
     _validate_materials(data.get("materials", []), errors)
     _validate_hosting(data.get("hosting"), errors)
     _validate_geometry_variants(data, errors)
     _validate_thumbnail(data.get("thumbnail"), errors)
+    _validate_runtime_proxy(data.get("runtimeProxy"), types, errors)
 
     if not isinstance(data.get("semanticParameters", {}), dict):
         errors.append("semanticParameters must be an object")
