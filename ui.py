@@ -47,6 +47,9 @@ def _draw_batch_factory(layout, scene):
     row = batch.row(align=True)
     row.prop(scene, "bfc_batch_recursive")
     row.prop(scene, "bfc_batch_export_glb")
+    baked_row = batch.row()
+    baked_row.enabled = scene.bfc_batch_export_glb
+    baked_row.prop(scene, "bfc_batch_export_baked_types")
     batch.prop(scene, "bfc_batch_auto_split_loose")
     if scene.bfc_batch_auto_split_loose:
         batch.prop(scene, "bfc_prepare_max_islands")
@@ -280,6 +283,12 @@ class BFC_PT_main(Panel):
         export_box.label(text="Mobile BIM Export", icon="EXPORT")
         export_box.prop(scene, "bfc_export_directory")
         export_box.prop(scene, "bfc_export_glb")
+        baked_row = export_box.row()
+        baked_row.enabled = scene.bfc_export_glb
+        baked_row.prop(scene, "bfc_export_baked_types")
+        saved_count = len(read_types(root))
+        if scene.bfc_export_glb and scene.bfc_export_baked_types:
+            export_box.label(text=f"Will bake {saved_count} saved Family Type geometry variant(s).")
         export_box.operator("bfc.export_family", icon="EXPORT")
 
         _draw_batch_factory(layout, scene)
