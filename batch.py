@@ -4,6 +4,7 @@ from pathlib import Path
 
 import bpy
 
+from . import core
 from .core import SUPPORTED_TYPES
 from .generators import rebuild_family_geometry, supports_generation
 from .prepare import DEFAULT_MAX_LOOSE_ISLANDS, auto_prepare_objects
@@ -48,6 +49,15 @@ def _build_output_keys(assets, input_directory):
             key = key.parent / f"{key.name}_{suffix}"
         output_keys[filepath] = key
     return output_keys
+
+
+def _family_id_from_key(family_kind, key):
+    key = Path(key)
+    parts = [core.slugify(part) for part in key.parts if str(part).strip()]
+    suffix = "/".join(part for part in parts if part)
+    if not suffix:
+        suffix = "family"
+    return f"axion:{family_kind.lower()}:{suffix}"
 
 
 def _snapshot_objects():
@@ -186,19 +196,26 @@ def convert_asset(
         if not geometry:
             raise ValueError("No supported mesh/curve geometry found")
 
+        key = Path(output_key) if output_key is not None else Path(filepath.stem)
+        family_id = _family_id_from_key(family_kind, key)
+
         root = create_typed_family(context, geometry, filepath.stem, family_kind)
+        root["bfc_family_id"] = family_id
+        root["bfc_source_asset"] = str(filepath)
+        root["bfc_source_key"] = key.as_posix()
+
         quality_before = validate_family(root)
         generator_result = None
         if supports_generation(family_kind):
             generator_result = rebuild_family_geometry(root)
         quality_after = validate_family(root)
 
-        key = Path(output_key) if output_key is not None else Path(filepath.stem)
         family_output = Path(output_directory) / family_kind.lower() / key
         manifest, glb = export_typed_family(root, family_output, export_glb=export_glb)
         return {
             "source": str(filepath),
-            "output_key": str(key),
+            "output_key": key.as_posix(),
+            "family_id": family_id,
             "family": filepath.stem,
             "family_kind": family_kind,
             "prepare": prepare_report,
@@ -230,6 +247,7 @@ def _review_queue_payload(report):
         review_items.append({
             "source": item.get("source"),
             "output_key": item.get("output_key"),
+            "family_id": item.get("family_id"),
             "family": item.get("family"),
             "family_kind": item.get("family_kind"),
             "manifest": item.get("manifest"),
