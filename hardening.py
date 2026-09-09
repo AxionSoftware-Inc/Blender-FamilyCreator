@@ -24,6 +24,17 @@ def _generator_reason(generator):
         return None
     if not generator.get("supported") or generator.get("changed", True):
         return None
+
+    reason_code = str(generator.get("reasonCode", "") or "").strip().upper()
+    if reason_code == "NO_SEPARATE_FRAME":
+        # A baked Window can be fully valid without independently editable
+        # frame meshes. This is a capability limitation, not a review reason.
+        return None
+    if reason_code == "PARAMETER_AUTO":
+        return "GENERATOR_PARAMETER_AUTO"
+    if reason_code == "NO_EFFECT":
+        return "GENERATOR_NO_CHANGE"
+
     message = str(generator.get("message", "") or "").strip().lower()
     has_auto = "auto/zero" in message or "auto or zero" in message
     has_missing_semantics = (
@@ -111,6 +122,7 @@ def _generator_diagnostic(generator):
     return {
         "supported": bool(generator.get("supported", False)),
         "changed": bool(generator.get("changed", False)),
+        "reasonCode": str(generator.get("reasonCode", "") or "") or None,
         "message": str(generator.get("message", "") or ""),
     }
 
@@ -151,6 +163,9 @@ def build_hardening_report(report):
         role_refinements = quality.get("roleRefinementCounts", {})
         if not isinstance(role_refinements, dict):
             role_refinements = {}
+        semantic_capabilities = quality.get("semanticCapabilities", {})
+        if not isinstance(semantic_capabilities, dict):
+            semantic_capabilities = {}
         unknown_samples = quality.get("unknownMemberSamples", [])
         if not isinstance(unknown_samples, list):
             unknown_samples = []
@@ -186,6 +201,7 @@ def build_hardening_report(report):
             "score": int(quality.get("score", 0) or 0),
             "roleCoverage": float(quality.get("roleCoverage", 0.0) or 0.0),
             "roleRefinements": dict(sorted((str(key), int(value)) for key, value in role_refinements.items())),
+            "semanticCapabilities": dict(sorted((str(key), bool(value)) for key, value in semantic_capabilities.items())),
             "unknownMemberSamples": unknown_samples[:12],
             "generator": _generator_diagnostic(item.get("generator")),
             "reasons": compact_reasons,
@@ -216,6 +232,7 @@ def build_hardening_report(report):
             "score": 0,
             "roleCoverage": 0.0,
             "roleRefinements": {},
+            "semanticCapabilities": {},
             "unknownMemberSamples": [],
             "generator": None,
             "reasons": ["CONVERSION_FAILED"],
@@ -278,8 +295,6 @@ def build_hardening_report(report):
         "outputDirectory": report.get("output_directory"),
         "requestedFamilyKind": report.get("family_kind"),
         "summary": summary,
-        # Compact mirrors make before/after corpus review easy without losing the
-        # detailed reason entries above.
         "counts": {
             "discovered": discovered,
             "converted": converted,
