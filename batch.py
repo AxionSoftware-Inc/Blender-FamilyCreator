@@ -5,6 +5,7 @@ from pathlib import Path
 import bpy
 
 from . import core
+from .catalog import build_library_index
 from .core import SUPPORTED_TYPES
 from .generators import rebuild_family_geometry, supports_generation
 from .prepare import DEFAULT_MAX_LOOSE_ISLANDS, auto_prepare_objects
@@ -288,6 +289,16 @@ def _finalize_report(output_directory, report):
     review_payload = _review_queue_payload(report)
     review_path = _write_json(output_directory, "review-queue.json", review_payload)
     report["review_queue_path"] = str(review_path)
+
+    try:
+        catalog_path, catalog = build_library_index(output_directory)
+        report["library_index_path"] = str(catalog_path)
+        report["library_family_count"] = int(catalog.get("familyCount", 0))
+        report["library_index_error"] = None
+    except Exception as exc:
+        report["library_index_path"] = None
+        report["library_family_count"] = None
+        report["library_index_error"] = str(exc)
 
     report_path = _write_json(output_directory, "batch-report.json", report)
     report["report_path"] = str(report_path)
