@@ -1,6 +1,7 @@
 import bpy
 from bpy.types import Operator
 
+from . import core
 from .batch import batch_convert_directory
 from .core import (
     add_custom_parameter,
