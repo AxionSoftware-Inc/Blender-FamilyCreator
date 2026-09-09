@@ -42,11 +42,11 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
         return panel_role
 
     if name_has(name, "jamb", "stile", "frame", "casing"):
-        if abs(cx) >= 0.45 and sx <= 0.35:
+        if abs(cx) >= 0.38 and sx <= 0.45 and sz >= 0.35:
             return ROLE_FRAME_LEFT if cx < 0.0 else ROLE_FRAME_RIGHT
-        if cz >= 0.45 and sz <= 0.35:
+        if cz >= 0.38 and sz <= 0.45 and sx >= 0.35:
             return ROLE_FRAME_HEAD
-        if cz <= -0.45 and sz <= 0.35:
+        if cz <= -0.38 and sz <= 0.45 and sx >= 0.35:
             return ROLE_FRAME_SILL
 
     if name_has(name, "head", "header"):
@@ -54,15 +54,27 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
     if name_has(name, "sill", "threshold"):
         return ROLE_FRAME_SILL
 
-    if sx <= 0.20 and sz >= 0.55 and abs(cx) >= 0.55:
+    # Geometry-only fallback for BlenderKit/vendor assets with names like
+    # Cube, Cube.001, Object.003.  Imported frame profiles are often wider than
+    # the previous 20% thresholds, especially when casing/trim is joined to the
+    # frame piece.  Edge position + dominant orientation is a more stable cue.
+    if abs(cx) >= 0.38 and sx <= 0.45 and sz >= 0.35:
         return ROLE_FRAME_LEFT if cx < 0.0 else ROLE_FRAME_RIGHT
-    if sx >= 0.55 and sz <= 0.20 and cz >= 0.50:
+    if cz >= 0.38 and sz <= 0.45 and sx >= 0.35:
         return ROLE_FRAME_HEAD
-    if sx >= 0.55 and sz <= 0.20 and cz <= -0.50:
+    if cz <= -0.38 and sz <= 0.45 and sx >= 0.35:
         return ROLE_FRAME_SILL
-    if sx <= 0.18 and sz >= 0.50:
+
+    # Central vertical or horizontal bars are both represented as MULLION.  The
+    # rule inference below uses the member's span per axis to decide which axis
+    # stretches and which one moves, so horizontal muntins no longer need a
+    # separate semantic role.
+    if abs(cx) < 0.45 and sx <= 0.24 and sz >= 0.40:
         return ROLE_MULLION
-    if sx >= 0.45 and sz >= 0.45:
+    if abs(cz) < 0.45 and sz <= 0.24 and sx >= 0.40:
+        return ROLE_MULLION
+
+    if sx >= 0.35 and sz >= 0.35:
         return panel_role
     return ROLE_UNKNOWN
 
@@ -75,7 +87,11 @@ def infer_semantic_parameters(members, family_dims):
         role = member.get("role")
         span = member.get("span", (0.0, 0.0, 0.0))
         if role in {ROLE_FRAME_LEFT, ROLE_FRAME_RIGHT, ROLE_MULLION}:
-            frame_widths.append(abs(float(span[0])))
+            # For horizontal muntins X can be the long axis; use the smaller
+            # profile dimension between X/Z when available.
+            x = abs(float(span[0]))
+            z = abs(float(span[2]))
+            frame_widths.append(min(x, z) if x > 0.0 and z > 0.0 else max(x, z))
         elif role in {ROLE_FRAME_HEAD, ROLE_FRAME_SILL}:
             frame_widths.append(abs(float(span[2])))
         elif role in {ROLE_PANEL, "DOOR_LEAF", "WINDOW_SASH"}:
@@ -104,7 +120,9 @@ def infer_rule(axis, span_ratio, center_ratio, name="", role=None):
     if role in {ROLE_FRAME_HEAD, ROLE_FRAME_SILL}:
         return "STRETCH" if axis == "X" else "MOVE"
     if role == ROLE_MULLION:
-        return "MOVE" if axis == "X" else "STRETCH"
+        # Orientation-aware without adding another role: the long axis stretches
+        # while the short/offset axis moves with the opening.
+        return "STRETCH" if span_ratio >= 0.40 else "MOVE"
     if role in {ROLE_PANEL, ROLE_GLASS, "DOOR_LEAF", "WINDOW_SASH"}:
         return "STRETCH"
 
