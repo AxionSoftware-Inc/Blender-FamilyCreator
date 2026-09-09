@@ -25,15 +25,19 @@ def _generator_reason(generator):
     if not generator.get("supported") or generator.get("changed", True):
         return None
     message = str(generator.get("message", "") or "").strip().lower()
-    if "auto/zero" in message or "auto or zero" in message:
-        return "GENERATOR_PARAMETER_AUTO"
-    if (
+    has_auto = "auto/zero" in message or "auto or zero" in message
+    has_missing_semantics = (
         ("no " in message and " member" in message)
         or "roles were not detected" in message
         or "role was not detected" in message
         or "role not detected" in message
-    ):
+    )
+    if has_auto and has_missing_semantics:
+        return "GENERATOR_AUTO_OR_MISSING_SEMANTICS"
+    if has_missing_semantics:
         return "GENERATOR_MISSING_SEMANTICS"
+    if has_auto:
+        return "GENERATOR_PARAMETER_AUTO"
     return "GENERATOR_NO_CHANGE"
 
 
