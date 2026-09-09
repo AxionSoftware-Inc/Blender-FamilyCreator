@@ -1,118 +1,119 @@
 # Blender Family Creator
 
-Convert ordinary Blender assets into **typed, semantic, hosted and parameter-driven BIM families** for Axion's mobile BIM stack.
+Convert ordinary Blender assets into **typed, semantic, hosted and parameter-driven BIM family libraries** for Axion's mobile BIM stack.
 
-The project is intentionally not a universal XYZ scaler. A sofa, table, door, cabinet and stair have different geometry rules, so conversion begins by choosing an exact **Family Class** and then runs class-specific analysis and generation logic.
+Family Creator is deliberately not a universal XYZ scaler. Sofa, Table, Door, Window, Cabinet, Stair and plumbing fixtures each have different geometry rules, so every asset is routed through an exact **Family Class** and dedicated class logic.
 
-## Core pipeline
-
-Blender already has a huge ecosystem of reusable `.blend`, FBX, GLB/GLTF and OBJ models. Family Creator turns those assets into BIM library content through this pipeline:
+## v0.5 pipeline
 
 ```text
-Imported asset
+Downloaded / authored Blender asset
   -> Auto Prepare
-  -> Family Class
-  -> Semantic member roles
-  -> Class-specific deformation rules
-  -> Auto-detected semantic parameters
-  -> Procedural / semantic rebuild
-  -> Preflight + Quality Gate
-  -> Family Types / Variants
-  -> Hosted/runtime metadata
-  -> .family.json + .glb
+  -> exact Family Class
+  -> semantic member roles
+  -> class-specific deformation rules
+  -> semantic parameter inference
+  -> procedural / semantic rebuild
+  -> preflight + quality gate
+  -> saved Family Types
+  -> baked Type GLB variants
+  -> hosted/runtime metadata
+  -> schema-v2 validation
+  -> family package
+  -> library-index.json
 ```
 
-## Family Class vs Family Type
+The goal is a fast library factory: automatically accept straightforward assets and send only questionable ones to a small review queue.
 
-- **Family Class** = behavior contract such as `SOFA`, `TABLE`, `DOOR`, `WINDOW`, `STAIR`.
-- **Family Type / Variant** = one saved parameter set inside a family, such as `900x2100`, `1200x2100`, `2-seat`, `3-seat`.
-- **Member Role** = semantic part such as `SEAT`, `ARM_LEFT`, `TOP`, `LEG`, `FRAME_LEFT`, `GLASS`, `SHELF`, `TREAD`, `DRAIN`.
+## Family Class, Type and Member Role
 
-The class determines how geometry is allowed to change. Types store concrete dimensions and semantic parameter values.
+- **Family Class** = behavior contract: `SOFA`, `TABLE`, `DOOR`, `WINDOW`, `STAIR`, etc.
+- **Family Type / Variant** = saved parameter state: `900x2100`, `2-seat`, `3-seat`, etc.
+- **Member Role** = semantic part: `SEAT`, `ARM_LEFT`, `TOP`, `LEG`, `FRAME_LEFT`, `GLASS`, `TREAD`, `DRAIN`, etc.
 
-## Current family classes
+Current exact classes:
 
-### Furniture
-- `SOFA`
-- `TABLE`
-- `CHAIR`
-- `BED`
+```text
+Furniture
+  SOFA
+  TABLE
+  CHAIR
+  BED
 
-### Casework
-- `CABINET`
-- `WARDROBE`
-- `SHELF`
-- `KITCHEN_BASE`
-- `KITCHEN_WALL`
+Casework
+  CABINET
+  WARDROBE
+  SHELF
+  KITCHEN_BASE
+  KITCHEN_WALL
 
-### Hosted openings
-- `DOOR`
-- `WINDOW`
+Hosted openings
+  DOOR
+  WINDOW
 
-### Circulation
-- `STAIR`
+Circulation
+  STAIR
 
-### Plumbing
-- `TOILET`
-- `SINK`
-- `BATHTUB`
+Plumbing
+  TOILET
+  SINK
+  BATHTUB
 
-### Fallback
-- `GENERIC`
+Fallback
+  GENERIC
+```
 
-See `docs/FAMILY_CLASSES.md` for the class contracts.
+See `docs/FAMILY_CLASSES.md` for class contracts.
 
 ## Semantic analysis
 
-`Analyze by Family Class` classifies source members using object names plus normalized evaluated geometry. Bounding boxes are taken from Blender's evaluated dependency graph when possible, so modifiers such as Array, Solidify and Bevel are reflected in analysis.
+`Analyze by Family Class` uses object names plus normalized evaluated geometry. Blender's evaluated dependency graph is used when possible, so modifier output such as Array, Solidify and Bevel is represented by the measured bounding box.
 
 Examples:
 
-- Sofa: `ARM_LEFT`, `ARM_RIGHT`, `SEAT`, `BACK`, `LEG`, `BASE`, `DECOR`
-- Table: `TOP`, `LEG`, `APRON`, `SUPPORT`, `DECOR`
-- Chair: `SEAT`, `BACK`, `LEG`, `ARM`, `FRAME`
-- Bed: `MATTRESS`, `BASE`, `HEADBOARD`, `FOOTBOARD`, `LEG`, `SLAT`
-- Casework: `SIDE_LEFT`, `SIDE_RIGHT`, `TOP`, `BOTTOM`, `BACK`, `SHELF`, `DOOR`, `DRAWER_FRONT`, `HANDLE`, `TOE_KICK`
-- Door / Window: frame edges, panel/leaf, glass, mullion, handle, hinge and hardware
-- Stair: `TREAD`, `RISER`, `STRINGER`, `HANDRAIL`, `BALUSTER`, `LANDING`
-- Sink / Bathtub: `BASIN`/`TUB`, `RIM`, `DRAIN`, `FAUCET`, `CONNECTOR`, `PEDESTAL`
-- Toilet: `BOWL`, `TANK`, `SEAT`, `BASE`, `CONNECTOR`, `FLUSH`
+- Sofa: `ARM_LEFT`, `ARM_RIGHT`, `SEAT`, `BACK`, `LEG`, `BASE`
+- Table: `TOP`, `LEG`, `APRON`, `SUPPORT`
+- Bed: `MATTRESS`, `BASE`, `HEADBOARD`, `FOOTBOARD`, `SLAT`
+- Casework: side/top/bottom/back/shelf/door/drawer/handle/toe-kick roles
+- Door/Window: frame, leaf/panel, glass, mullion, handle, hinge and hardware
+- Stair: tread, riser, stringer, landing, handrail and baluster roles
+- Plumbing: basin/tub/bowl, rim, drain, faucet, tank, seat and connector roles
 
-Downloaded assets with generic names such as `Object.001` can still receive useful roles from geometry proportions and location.
+Generic names such as `Object.001` can still receive geometry-based fallback roles.
 
 ## Auto Prepare
 
-Many downloaded models store multiple disconnected physical parts in one Mesh object. **Prepare Selection** and Batch **Auto Split Loose Parts** can conservatively separate manageable disconnected islands before semantic analysis.
+Downloaded models often store multiple disconnected physical parts inside one Mesh. **Prepare Selection** and Batch **Auto Split Loose Parts** can conservatively separate manageable loose islands before analysis.
 
 Safety rules:
 
 - shape-key meshes are not split;
 - armature-driven meshes are not split;
 - single-island meshes are untouched;
-- excessively fragmented meshes are untouched;
-- default maximum is 32 loose parts and is configurable.
+- very fragmented meshes are untouched;
+- default maximum loose-part count is configurable.
 
-## Geometry rules and anchors
+Empty and Armature transform parents are preserved as hierarchy helpers while semantic analysis remains geometry-only.
 
-Every member has an X/Y/Z rule:
+## Class geometry and semantic parameters
+
+Per-member X/Y/Z behavior:
 
 | Rule | Meaning |
 |---|---|
-| `STRETCH` | Resize on this family axis |
-| `MOVE` | Keep size but move with the changing family boundary |
-| `FIXED` | Preserve size and position on this axis |
+| `STRETCH` | Resize on a family axis |
+| `MOVE` | Preserve size but move with the changing family boundary |
+| `FIXED` | Preserve size and position |
 
-Family axes also have semantic anchors. Door/table/chair/casework height uses a `MIN` Z anchor so the object remains on its host/floor plane instead of scaling away from it. Stair run/rise begins from its start point.
+Family axes also have semantic anchors such as `CENTER`, `MIN` and `MAX`. Door/table/casework height, for example, can grow from the floor instead of scaling around object center.
 
-## Semantic parameters
-
-Examples:
+Current semantic parameters include:
 
 - Sofa: `seat_height`, `arm_width`, `seat_count`
 - Table: `top_thickness`
 - Chair: `seat_height`
 - Bed: `mattress_height`
-- Cabinet / Wardrobe: `panel_thickness`
+- Cabinet/Wardrobe: `panel_thickness`
 - Shelf: `panel_thickness`, `shelf_count`
 - Kitchen Base: `panel_thickness`, `toe_kick_height`
 - Door: `frame_width`, `panel_thickness`
@@ -122,78 +123,119 @@ Examples:
 - Sink: `drain_diameter`
 - Bathtub: `rim_thickness`
 
-Most values are inferred when the parameter is still `0 / Auto`. Saved Family Types include semantic parameter values as well as overall dimensions.
+Saved Family Types include semantic parameter values as well as overall dimensions.
 
-## Procedural / semantic generators
+## Procedural generators
 
-`generators/` contains class-specific geometry builders. Source pieces used for repetition become hidden templates and are excluded from export. Repeated modules clone complete object subtrees with linked mesh data, preserving child details and materials without needlessly duplicating mesh memory.
+`generators/` contains isolated class-specific geometry logic.
 
 Current behavior includes:
 
-- **Sofa**: arm width, seat height and repeated seat count
-- **Table**: tabletop thickness
-- **Chair**: seat height with leg adjustment
-- **Bed**: mattress thickness
-- **Cabinet / Wardrobe / Kitchen**: panel thickness and kitchen toe-kick height
-- **Shelf**: panel thickness plus repeated shelf levels
-- **Door**: frame width and leaf thickness
-- **Window**: frame width
-- **Stair**: straight tread/riser generation from solved run/rise parameters
-- **Toilet**: connector elevation
-- **Sink**: drain diameter
-- **Bathtub**: rim profile thickness
+- Sofa repeated seat modules, arm width and seat height
+- Table top thickness
+- Chair seat height with leg adjustment
+- Bed mattress thickness
+- Cabinet/Wardrobe/Kitchen panel geometry
+- Shelf repeated shelf levels
+- Door frame/leaf geometry
+- Window frame geometry
+- Straight Stair tread/riser generation
+- Toilet connector elevation
+- Sink drain diameter
+- Bathtub rim thickness
 
-Canonical source transforms remain immutable while generated copies keep their own generated bases. This prevents parameter/type switching from accumulating transform drift.
-
-Changing overall dimensions automatically re-applies supported class generators. Applying a saved Family Type also rebuilds procedural geometry.
+Repeated modules clone full child subtrees with linked mesh data. Source templates are hidden and excluded from export. Canonical source transforms remain immutable so switching Types does not accumulate transform drift.
 
 ## Hosted Door / Window families
 
-Door and Window exports contain runtime BIM hosting metadata:
+Door and Window manifests include:
 
-- wall host type;
-- rectangular host opening/cut dimensions;
-- insertion point (`THRESHOLD_CENTER` or `SILL_CENTER`);
+- `WALL` host type;
+- rectangular host cut dimensions;
+- threshold/sill insertion point;
 - local placement origin;
-- facing +Y / up +Z family directions;
+- family +Y facing and +Z up directions;
 - facing/hand flip capability;
 - Window sill elevation;
-- lightweight plan representation.
+- lightweight plan representation;
+- Door hinge-side inference from hinge/handle roles where possible.
 
-Door hinge side is inferred from `HINGE` roles when possible, with handle position as a fallback. Unknown swing direction is left explicitly unknown instead of being guessed.
+Unknown handing is explicitly left unknown rather than guessed.
 
-## Quality and preflight
+## Quality + preflight
 
-Every family gets two related states:
+Every converted family has two states:
 
-- **ready**: required class semantics were detected;
-- **automaticReady**: semantics are valid and source preflight found no reason for manual review.
+- `ready`: required class semantics exist;
+- `automaticReady`: semantic checks pass and source preflight finds no reason for manual review.
 
-Checks include:
+Preflight checks include semantic coverage, required/recommended roles, polygon count, canonical object scale, negative/mirrored transforms, shape keys, armatures and suspicious source units/dimensions.
 
-- semantic role coverage;
-- required and recommended roles;
-- source polygon count;
-- canonical unapplied/non-uniform scale;
-- mirrored/negative transforms;
-- shape keys and armature usage;
-- suspicious family dimensions / probable unit mismatch.
+Batch uses `automaticReady` to decide whether an asset goes straight to the library or into `review-queue.json`.
 
-The quality report is embedded in `.family.json` and Batch uses `automaticReady` to decide whether an asset enters the review queue.
+## Baked Family Type geometry variants
+
+The mobile BIM engine does not need to reproduce every Blender generator immediately.
+
+When **Bake All Saved Types** is enabled:
+
+```text
+family/
+  sofa_a.family.json
+  sofa_a.glb                 # active Type
+  variants/
+    2_seat.glb
+    3_seat.glb
+    4_seat.glb
+```
+
+The manifest contains:
+
+```json
+{
+  "geometryStrategy": {
+    "mode": "BAKED_TYPE_VARIANTS",
+    "activeType": "3-seat",
+    "variantCount": 3
+  },
+  "geometryVariants": {
+    "3-seat": {"uri": "sofa_a.glb", "baked": true, "primary": true},
+    "2-seat": {"uri": "variants/2_seat.glb", "baked": true, "primary": false},
+    "4-seat": {"uri": "variants/4_seat.glb", "baked": true, "primary": false}
+  }
+}
+```
+
+Variant export temporarily applies each Type, rebuilds procedural geometry, bakes GLB, then restores the original authoring state and generator revision. Export is transactional: failed variants/schema validation do not leave a half-valid package.
 
 ## Batch Family Factory
 
-A whole folder can be converted with one exact Family Class.
+### One exact class
 
 ```text
-80 downloaded sofa models
-  -> Family Class = SOFA
-  -> Auto Prepare
-  -> Analyze / Generate / Validate
-  -> Build Family Library
+Asset Folder = /downloaded/sofas
+Family Class = SOFA
+Build Family Library
 ```
 
-Supported inputs:
+### Mixed library by exact folder names
+
+Choose **Auto by Folder** and organize assets like:
+
+```text
+assets/
+  sofas/
+  tables/
+  chairs/
+  doors/
+  windows/
+  stairs/
+  sinks/
+```
+
+Nested structures such as `furniture/tables/vendor_a/model.glb` also work. Recognized folder aliases resolve to an exact class. Unknown folders are rejected instead of silently guessed.
+
+Supported source formats:
 
 ```text
 .blend
@@ -203,87 +245,96 @@ Supported inputs:
 .obj
 ```
 
-The source relative folder path is preserved in the output and is also used to generate a collision-safe Family ID, so same-named assets in different source folders do not overwrite or identify as each other.
+Batch output preserves source-relative paths and creates collision-safe Family IDs.
 
-Typical output:
+## Library output
+
+A production root can contain multiple class batches:
 
 ```text
 library/
-  sofa/
-    vendor_a/Sofa_A/
-      sofa_a.family.json
-      sofa_a.glb
-    vendor_b/Sofa_A/
-      sofa_a.family.json
-      sofa_a.glb
+  sofa/...
+  table/...
+  door/...
+  window/...
   batch-report.json
   review-queue.json
+  library-index.json
 ```
 
-- `batch-report.json`: complete conversion results.
-- `review-queue.json`: only questionable families plus failed assets, so an artist can inspect the minority that automation could not confidently accept.
+### `batch-report.json`
 
-Batch cleanup tracks imported objects/datablocks and only removes owned zero-user data. It does not run a global orphan purge on the user's scene.
+Contains discovered/converted/ready/review/failed counts, resolved class counts, generator/preflight details and source/output paths.
 
-## Export package / schema v2
+### `review-queue.json`
 
-```text
-my_family.family.json
-my_family.glb
-```
+Contains only assets that need human review plus failed conversions.
 
-The JSON includes:
+### `library-index.json`
+
+Cross-class runtime catalog automatically rebuilt after every batch. It contains:
+
+- `familyId`;
+- name and exact Family Class;
+- category/group;
+- root-relative manifest URI;
+- saved Type names;
+- root-relative baked geometry variant URIs;
+- dimensions;
+- quality score and `automaticReady`;
+- host type when applicable;
+- material count;
+- optional future thumbnail URI.
+
+This lets the mobile BIM app load one compact catalog instead of recursively scanning every family folder.
+
+## Schema v2 export
+
+Each family package uses `axion.family` schema version 2 and includes:
 
 - stable `familyId`;
-- schema version and Family Class;
+- exact `familyKind`;
 - meter units;
-- explicit family Z-up vs glTF Y-up coordinate-system metadata;
-- dimensions and Family Types;
+- family Z-up vs glTF Y-up coordinate metadata;
+- dimensions and named Types;
 - semantic parameters;
-- class profile and anchors;
-- member roles/rules and generator metadata;
-- material IDs, usage and basic PBR factors;
-- quality + preflight report;
-- hosted Door/Window placement and plan metadata when applicable.
+- class profile and axis anchors;
+- member roles/rules;
+- generator/template metadata;
+- material IDs, usages and basic PBR metadata;
+- quality/preflight report;
+- hosting/plan metadata where applicable;
+- baked geometry variants when GLB export is enabled.
 
-Textures/geometry remain in GLB; the JSON material section is intended for runtime identification/search/replacement, not duplicating texture payloads.
-
-## Manual workflow
-
-1. Import or open an asset.
-2. Select its geometry.
-3. Optionally run **Prepare Selection**.
-4. Choose the exact **Family Class**.
-5. Click **Create Typed Family from Selection**.
-6. Inspect Quality and semantic roles.
-7. Run **Analyze by Family Class** after cleanup/class changes.
-8. Change dimensions and semantic parameters.
-9. Rebuild procedural geometry when editing semantic ID-properties.
-10. Correct member roles/rules only where automation needs help.
-11. Save useful configurations as Family Types.
-12. Export `.family.json + .glb`.
+`schema.py` validates exported packages before they are accepted. See `docs/FAMILY_FORMAT.md`.
 
 ## Project structure
 
 ```text
-family_types/           # exact class contracts, role classifiers, parameter inference
-generators/             # class-specific semantic/procedural geometry
-core.py                 # family storage, canonical transforms, variants, GLB export
-typed.py                # typed pipeline and manifest enrichment
-prepare.py              # conservative loose-part preparation
-preflight.py            # source asset risk checks
-quality.py              # semantic + preflight quality gate
-hosting.py              # Door/Window wall hosting and plan semantics
-materials.py            # runtime material metadata
-batch.py                # folder -> library + review queue
-operators.py            # Blender operators
-ui.py                   # 3D View Sidebar UI
+family_types/           exact class contracts and semantic analysis
+generators/             class-specific procedural/semantic geometry
+core.py                 family storage, canonical transforms and base export
+typed.py                typed pipeline, manifest enrichment and validation
+variants.py             baked Family Type geometry export
+geometry_export.py      reusable GLB geometry exporter
+prepare.py              conservative source preparation
+preflight.py            source-risk inspection
+quality.py              semantic + preflight quality gate
+hosting.py              Door/Window hosting and plan semantics
+materials.py            runtime material metadata
+family_path.py          exact folder -> Family Class resolver
+catalog.py              cross-class library-index builder
+batch.py                folder -> family library + review queue + index
+schema.py               Axion Family schema-v2 validation
+operators.py            Blender operators
+ui.py                   3D View Sidebar UI
+tests/                   pure-Python regression coverage
 ```
 
 ## Development status
 
-**v0.4.0 — Hosted Family Factory**
+**v0.5.0 — Mobile Family Library Factory**
 
-The addon now has dedicated logic/generation for the main furniture, casework, opening, stair and plumbing classes; hosted Door/Window metadata; conservative source preparation; preflight/quality gates; stable Family IDs; material metadata; and batch conversion with a review queue.
+The addon now goes beyond single-family authoring: it can build exact-class and mixed-folder libraries, bake saved Family Types into mobile-ready GLB variants, quarantine questionable assets, and rebuild a cross-class runtime catalog.
 
-The next essential validation layer is representative real-world assets inside Blender 4.x. The code is deliberately split by Family Class so fixes found in one category can be strengthened without destabilizing unrelated classes.
+The next essential validation layer remains representative real-world assets inside Blender 4.x. There is intentionally no GitHub Actions workflow in this repository; pure-Python regression tests remain available for local execution.
