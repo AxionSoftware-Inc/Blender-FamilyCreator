@@ -58,9 +58,19 @@ def _mesh_polygon_count(obj):
     return len(polygons) if polygons is not None else 0
 
 
-def _scale_flags(obj):
+def _canonical_matrix(obj):
+    values = obj.get(core.BASE_MATRIX)
+    if values is not None:
+        try:
+            return core.list_to_matrix(list(values))
+        except Exception:
+            pass
+    return obj.matrix_world.copy()
+
+
+def _scale_flags(matrix):
     try:
-        scale = tuple(abs(float(value)) for value in obj.scale)
+        scale = tuple(abs(float(value)) for value in matrix.to_scale())
     except Exception:
         return False, False
     non_unit = any(abs(value - 1.0) > SCALE_EPSILON for value in scale)
@@ -86,14 +96,15 @@ def inspect_family(root):
 
     for obj in members:
         stats["meshPolygons"] += _mesh_polygon_count(obj)
-        non_unit, non_uniform = _scale_flags(obj)
+        matrix = _canonical_matrix(obj)
+        non_unit, non_uniform = _scale_flags(matrix)
         if non_unit:
             stats["nonUnitScaleMembers"] += 1
         if non_uniform:
             stats["nonUniformScaleMembers"] += 1
 
         try:
-            if float(obj.matrix_world.to_3x3().determinant()) < 0.0:
+            if float(matrix.to_3x3().determinant()) < 0.0:
                 stats["negativeDeterminantMembers"] += 1
         except Exception:
             pass
@@ -110,16 +121,16 @@ def inspect_family(root):
         warnings.append(f"Heavy source geometry: {stats['meshPolygons']:,} polygons")
 
     if stats["nonUniformScaleMembers"]:
-        severe.append(f"{stats['nonUniformScaleMembers']} member(s) have non-uniform object scale")
+        severe.append(f"{stats['nonUniformScaleMembers']} source member(s) have non-uniform scale")
     elif stats["nonUnitScaleMembers"]:
-        warnings.append(f"{stats['nonUnitScaleMembers']} member(s) have unapplied object scale")
+        warnings.append(f"{stats['nonUnitScaleMembers']} source member(s) have unapplied scale")
 
     if stats["negativeDeterminantMembers"]:
-        severe.append(f"{stats['negativeDeterminantMembers']} member(s) have mirrored/negative transforms")
+        severe.append(f"{stats['negativeDeterminantMembers']} source member(s) have mirrored/negative transforms")
     if stats["shapeKeyMembers"]:
-        warnings.append(f"{stats['shapeKeyMembers']} member(s) contain shape keys")
+        warnings.append(f"{stats['shapeKeyMembers']} source member(s) contain shape keys")
     if stats["armatureMembers"]:
-        warnings.append(f"{stats['armatureMembers']} member(s) use armature modifiers")
+        warnings.append(f"{stats['armatureMembers']} source member(s) use armature modifiers")
 
     dims = (
         abs(float(root.bfc_width)),
