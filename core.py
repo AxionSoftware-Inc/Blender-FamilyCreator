@@ -67,8 +67,26 @@ def exportable_family_members(root):
     ]
 
 
+def _evaluated_bbox_state(obj):
+    """Return (matrix_world, bound_box) after modifiers when possible."""
+    if obj is None:
+        return Matrix.Identity(4), ()
+    try:
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        evaluated = obj.evaluated_get(depsgraph)
+        corners = tuple(evaluated.bound_box)
+        if corners:
+            return evaluated.matrix_world.copy(), corners
+    except Exception:
+        pass
+    return obj.matrix_world.copy(), tuple(obj.bound_box)
+
+
 def object_bbox_world(obj):
-    corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+    matrix_world, bound_box = _evaluated_bbox_state(obj)
+    corners = [matrix_world @ Vector(corner) for corner in bound_box]
+    if not corners:
+        raise ValueError(f"Object '{getattr(obj, 'name', '?')}' has no measurable bounding box")
     mins = Vector((min(c.x for c in corners), min(c.y for c in corners), min(c.z for c in corners)))
     maxs = Vector((max(c.x for c in corners), max(c.y for c in corners), max(c.z for c in corners)))
     return mins, maxs
@@ -85,7 +103,10 @@ def objects_bbox_world(objects):
 
 def local_bbox(obj, root):
     root_inv = root.matrix_world.inverted_safe()
-    corners = [root_inv @ (obj.matrix_world @ Vector(corner)) for corner in obj.bound_box]
+    matrix_world, bound_box = _evaluated_bbox_state(obj)
+    corners = [root_inv @ (matrix_world @ Vector(corner)) for corner in bound_box]
+    if not corners:
+        raise ValueError(f"Object '{getattr(obj, 'name', '?')}' has no measurable bounding box")
     mins = Vector((min(c.x for c in corners), min(c.y for c in corners), min(c.z for c in corners)))
     maxs = Vector((max(c.x for c in corners), max(c.y for c in corners), max(c.z for c in corners)))
     return mins, maxs
