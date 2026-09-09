@@ -10,14 +10,15 @@ The deterministic Blender 5.2 suite currently covers all registered Family Class
 
 Real Asset Hardening begins from that baseline rather than replacing it.
 
-The first real BlenderKit corpus baselines are recorded in:
+The current BlenderKit corpus baselines are recorded in:
 
 ```text
 docs/hardening/2026-09-09-blenderkit-baseline.md
 docs/hardening/2026-09-09-blenderkit-rerun-1.md
+docs/hardening/2026-09-09-blenderkit-rerun-2.md
 ```
 
-That corpus contains 7 `.blend` assets across BED, TABLE and WINDOW. All 7 convert successfully, but semantic coverage remains the main review bottleneck. Hardening therefore focuses on class-specific semantic understanding rather than relaxing quality thresholds.
+That corpus contains 7 `.blend` assets across BED, TABLE and WINDOW. All 7 convert successfully. Rerun-2 reduced missing required semantics again and proved BED family-level mattress refinement in real vendor geometry, while also exposing that Window family validity and separate-frame parameterization must be treated as different capabilities.
 
 ## Recommended corpus
 
@@ -119,8 +120,9 @@ The hardening report contains:
 - normalized review reasons;
 - semantic refinement frequency;
 - per-asset semantic refinement counts;
+- semantic capability flags;
 - unresolved UNKNOWN member samples with normalized span/center values;
-- generator changed/message diagnostics;
+- generator changed/reasonCode/message diagnostics;
 - example source files for the most common reasons.
 
 Normalized reasons include:
@@ -150,7 +152,7 @@ CONVERSION_FAILED
 
 `MIXED_SCENE_SUSPECTED` is currently a conservative review signal, not an automatic deletion/filter step. For example, a `table-chair-set` should remain reviewable until explicit multi-item isolation logic can prove which objects belong to the table family.
 
-Generator no-change diagnostics are descriptive only. `GENERATOR_PARAMETER_AUTO` means source geometry was intentionally preserved because a semantic parameter is still Auto/zero. `GENERATOR_MISSING_SEMANTICS` means the generator could not find the role it needs. When a generator message itself combines both possibilities, `GENERATOR_AUTO_OR_MISSING_SEMANTICS` preserves that ambiguity rather than inventing certainty.
+Generator no-change diagnostics are descriptive only. `GENERATOR_PARAMETER_AUTO` means source geometry was intentionally preserved because a semantic parameter is still Auto/zero. Missing separate Window frame geometry is now expressed by generator `reasonCode=NO_SEPARATE_FRAME` and is not itself a review reason; it means the baked source Window is valid but `parametricFrameWidth` is unavailable.
 
 ## Family-level second-pass refinement
 
@@ -170,6 +172,22 @@ WINDOW_FRAME_EDGE_CANDIDATE
 
 These tags do not lower quality thresholds. They exist so corpus deltas can prove whether a new family-level heuristic actually caused an improvement.
 
+## Window validity versus edit capability
+
+A vendor Window can be a valid hosted/baked runtime family without separate frame meshes. Some assets expose only sash/pane geometry, with the frame baked into those meshes.
+
+Therefore Window quality separates validity from edit capability:
+
+```text
+semanticCapabilities.separateFrame
+semanticCapabilities.separateGlass
+semanticCapabilities.parametricFrameWidth
+semanticCapabilities.materialAddressableGlass
+semanticCapabilities.bakedSashOrPanel
+```
+
+Required Window semantics are glazing/sash/panel semantics. Separate frame geometry is no longer a validity requirement. When separate frame meshes exist, `parametricFrameWidth=true`; otherwise the source geometry remains baked and the family can still be automaticReady if coverage/preflight quality is otherwise sufficient.
+
 ## Triage rule
 
 Do not optimize for one unusual asset first.
@@ -180,11 +198,11 @@ After each corpus run:
 2. Inspect the top reason and its example assets.
 3. Inspect `refinementFrequency` to see whether second-pass logic actually fired.
 4. For unresolved semantics, inspect each asset's `unknownMemberSamples` before widening classifier thresholds.
-5. Inspect generator messages when a generator did not change geometry.
+5. Inspect semantic capability flags and generator messages when a generator did not change geometry.
 6. Decide whether the problem belongs to importer compatibility, preparation, role classification, generator logic, preflight policy or source quality.
 7. Make the smallest class-specific/general fix that addresses the repeated pattern.
 8. Add a deterministic regression case when practical.
-9. Rerun the Blender 5.2 synthetic suite and focused refinement smoke test.
+9. Rerun the Blender 5.2 synthetic suite and focused smoke tests.
 10. Rerun the **same real corpus** before adding new assets.
 11. Compare acceptance and failure rates before/after.
 12. Only then expand the corpus/formats.
@@ -222,10 +240,12 @@ Priority order:
 
 - Generic vendor names should be handled by geometry fallback where possible, not by lowering semantic thresholds.
 - Global quality thresholds are not reduced merely to improve automaticReady percentages.
+- Low-risk semantic aliases such as `mattres`, `piping`, `bolt` and truncated `fram` names may be recognized when their class context is clear.
 - Non-uniform scale remains a review signal; it is not auto-applied because modifiers, children and rigged assets can make transform application destructive.
 - Heavy geometry remains reviewable until the LOD/mobile-budget phase provides a deliberate simplification pipeline.
 - Mixed furniture sets are flagged rather than silently trimmed to one item.
 - Ambiguous second-pass candidates remain UNKNOWN rather than being force-classified.
+- Window baked validity and Window frame-width parameterization are separate capabilities.
 
 ## Exit criteria
 
