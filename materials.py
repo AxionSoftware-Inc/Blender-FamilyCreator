@@ -76,6 +76,20 @@ def material_pbr_metadata(material):
     return data
 
 
+def _assign_unique_ids(records):
+    used = set()
+    for record in sorted(records, key=lambda item: item["name"].lower()):
+        base = core.slugify(record["name"])
+        candidate = base
+        index = 2
+        while candidate in used:
+            candidate = f"{base}_{index}"
+            index += 1
+        used.add(candidate)
+        record["id"] = candidate
+    return records
+
+
 def family_material_metadata(root):
     materials = {}
 
@@ -91,7 +105,6 @@ def family_material_metadata(root):
             key = material.name_full if hasattr(material, "name_full") else material.name
             if key not in materials:
                 materials[key] = {
-                    "id": core.slugify(key),
                     "name": str(key),
                     "pbr": material_pbr_metadata(material),
                     "usages": [],
@@ -103,6 +116,6 @@ def family_material_metadata(root):
             if usage not in materials[key]["usages"]:
                 materials[key]["usages"].append(usage)
 
-    result = list(materials.values())
+    result = _assign_unique_ids(list(materials.values()))
     result.sort(key=lambda item: item["id"])
     return result
