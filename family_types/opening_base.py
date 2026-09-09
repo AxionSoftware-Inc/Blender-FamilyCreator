@@ -24,6 +24,14 @@ def _median(values):
     return (values[middle - 1] + values[middle]) * 0.5
 
 
+def _vertical_frame_like(sx, sz):
+    return sx <= 0.36 and sz >= 0.35 and sx <= sz * 0.65
+
+
+def _horizontal_frame_like(sx, sz):
+    return sz <= 0.36 and sx >= 0.35 and sz <= sx * 0.65
+
+
 def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
     sx, sy, sz = spans
     cx, cy, cz = centers
@@ -42,11 +50,11 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
         return panel_role
 
     if name_has(name, "jamb", "stile", "frame", "casing"):
-        if abs(cx) >= 0.38 and sx <= 0.45 and sz >= 0.35:
+        if abs(cx) >= 0.38 and _vertical_frame_like(sx, sz):
             return ROLE_FRAME_LEFT if cx < 0.0 else ROLE_FRAME_RIGHT
-        if cz >= 0.38 and sz <= 0.45 and sx >= 0.35:
+        if cz >= 0.38 and _horizontal_frame_like(sx, sz):
             return ROLE_FRAME_HEAD
-        if cz <= -0.38 and sz <= 0.45 and sx >= 0.35:
+        if cz <= -0.38 and _horizontal_frame_like(sx, sz):
             return ROLE_FRAME_SILL
 
     if name_has(name, "head", "header"):
@@ -55,23 +63,24 @@ def classify_role(spans, centers, name="", panel_role=ROLE_PANEL):
         return ROLE_FRAME_SILL
 
     # Geometry-only fallback for BlenderKit/vendor assets with names like
-    # Cube, Cube.001, Object.003.  Imported frame profiles are often wider than
-    # the previous 20% thresholds, especially when casing/trim is joined to the
-    # frame piece.  Edge position + dominant orientation is a more stable cue.
-    if abs(cx) >= 0.38 and sx <= 0.45 and sz >= 0.35:
+    # Cube, Cube.001, Object.003. Imported frame profiles are often wider than
+    # the old 20% thresholds, but still have a strong vertical/horizontal
+    # aspect ratio. Combining edge position with dominant orientation avoids
+    # mistaking half-width sash/pane objects for side frames.
+    if abs(cx) >= 0.38 and _vertical_frame_like(sx, sz):
         return ROLE_FRAME_LEFT if cx < 0.0 else ROLE_FRAME_RIGHT
-    if cz >= 0.38 and sz <= 0.45 and sx >= 0.35:
+    if cz >= 0.38 and _horizontal_frame_like(sx, sz):
         return ROLE_FRAME_HEAD
-    if cz <= -0.38 and sz <= 0.45 and sx >= 0.35:
+    if cz <= -0.38 and _horizontal_frame_like(sx, sz):
         return ROLE_FRAME_SILL
 
-    # Central vertical or horizontal bars are both represented as MULLION.  The
+    # Central vertical or horizontal bars are both represented as MULLION. The
     # rule inference below uses the member's span per axis to decide which axis
-    # stretches and which one moves, so horizontal muntins no longer need a
+    # stretches and which one moves, so horizontal muntins do not need a
     # separate semantic role.
-    if abs(cx) < 0.45 and sx <= 0.24 and sz >= 0.40:
+    if abs(cx) < 0.45 and sx <= 0.24 and sz >= 0.40 and sx <= sz * 0.55:
         return ROLE_MULLION
-    if abs(cz) < 0.45 and sz <= 0.24 and sx >= 0.40:
+    if abs(cz) < 0.45 and sz <= 0.24 and sx >= 0.40 and sz <= sx * 0.55:
         return ROLE_MULLION
 
     if sx >= 0.35 and sz >= 0.35:
