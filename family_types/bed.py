@@ -15,7 +15,7 @@ def classify_role(spans, centers, name=""):
     sx, sy, sz = spans
     cx, cy, cz = centers
 
-    if name_has(name, "mattress", "bed_pad", "cushion"):
+    if name_has(name, "mattress", "mattres", "bed_pad", "cushion"):
         return ROLE_MATTRESS
     if name_has(name, "headboard", "head_board", "head"):
         return ROLE_HEADBOARD
@@ -27,7 +27,20 @@ def classify_role(spans, centers, name=""):
         return ROLE_SLAT
     if name_has(name, "base", "frame", "platform"):
         return ROLE_BASE
-    if name_has(name, "pillow", "blanket", "duvet", "decor"):
+    if name_has(
+        name,
+        "pillow",
+        "blanket",
+        "duvet",
+        "decor",
+        "piping",
+        "welt",
+        "bedcover",
+        "bed_cover",
+        "cover",
+        "sheet",
+        "quilt",
+    ):
         return ROLE_DECOR
 
     # Vendor assets commonly use generic names such as Cube.014.  The original
@@ -85,6 +98,11 @@ def refine_roles(members, family_dims):
             "blanket",
             "duvet",
             "decor",
+            "piping",
+            "welt",
+            "cover",
+            "sheet",
+            "quilt",
         ):
             continue
 
