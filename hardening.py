@@ -83,6 +83,16 @@ def _rounded_average(total, count):
     return round(float(total) / float(count), 4) if count else 0.0
 
 
+def _generator_diagnostic(generator):
+    if not isinstance(generator, dict):
+        return None
+    return {
+        "supported": bool(generator.get("supported", False)),
+        "changed": bool(generator.get("changed", False)),
+        "message": str(generator.get("message", "") or ""),
+    }
+
+
 def build_hardening_report(report):
     results = list(report.get("results", ()) or ())
     errors = list(report.get("errors", ()) or ())
@@ -119,6 +129,9 @@ def build_hardening_report(report):
         role_refinements = quality.get("roleRefinementCounts", {})
         if not isinstance(role_refinements, dict):
             role_refinements = {}
+        unknown_samples = quality.get("unknownMemberSamples", [])
+        if not isinstance(unknown_samples, list):
+            unknown_samples = []
 
         class_stats = by_class[family_kind]
         class_stats["converted"] += 1
@@ -151,6 +164,8 @@ def build_hardening_report(report):
             "score": int(quality.get("score", 0) or 0),
             "roleCoverage": float(quality.get("roleCoverage", 0.0) or 0.0),
             "roleRefinements": dict(sorted((str(key), int(value)) for key, value in role_refinements.items())),
+            "unknownMemberSamples": unknown_samples[:12],
+            "generator": _generator_diagnostic(item.get("generator")),
             "reasons": compact_reasons,
             "detailedReasons": item_reasons,
         })
@@ -179,6 +194,8 @@ def build_hardening_report(report):
             "score": 0,
             "roleCoverage": 0.0,
             "roleRefinements": {},
+            "unknownMemberSamples": [],
+            "generator": None,
             "reasons": ["CONVERSION_FAILED"],
             "detailedReasons": ["CONVERSION_FAILED"],
             "error": str(error.get("error", "") if isinstance(error, dict) else error),
