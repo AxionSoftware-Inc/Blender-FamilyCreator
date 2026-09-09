@@ -98,7 +98,6 @@ def apply_inferred_semantic_parameter_values(root, values, family_kind=None):
 
 
 def capture_typed_family(root):
-    """Capture source/template members, never generated copies or hierarchy helpers."""
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
     family_dims = (
         max(abs(root.bfc_base_width), 1e-9),
@@ -225,9 +224,7 @@ def typed_manifest_metadata(root):
     metadata = {
         "familyId": family_identifier(root, type_id),
         "familyKind": type_id,
-        "units": {
-            "length": "meter",
-        },
+        "units": {"length": "meter"},
         "coordinateSystems": {
             "family": "RIGHT_HANDED_Z_UP",
             "geometry": "GLTF_RIGHT_HANDED_Y_UP",
@@ -295,26 +292,26 @@ def export_typed_family(root, directory, export_glb=True, export_baked_types=Fal
     _inject_member_roles(root, data)
 
     variant_files = []
-    if glb_path is not None:
-        variant_result = export_baked_type_variants(
-            root,
-            directory,
-            glb_path,
-            export_all_types=bool(export_baked_types),
-        )
-        data["geometryVariants"] = variant_result["variants"]
-        variant_files = list(variant_result.get("createdFiles", ()))
-        data["geometryStrategy"] = {
-            "mode": "BAKED_TYPE_VARIANTS" if len(data["geometryVariants"]) > 1 else "BAKED_ACTIVE_TYPE",
-            "activeType": str(root.bfc_type_name),
-            "variantCount": len(data["geometryVariants"]),
-        }
-
     try:
+        if glb_path is not None:
+            variant_result = export_baked_type_variants(
+                root,
+                directory,
+                glb_path,
+                export_all_types=bool(export_baked_types),
+            )
+            data["geometryVariants"] = variant_result["variants"]
+            variant_files = list(variant_result.get("createdFiles", ()))
+            data["geometryStrategy"] = {
+                "mode": "BAKED_TYPE_VARIANTS" if len(data["geometryVariants"]) > 1 else "BAKED_ACTIVE_TYPE",
+                "activeType": str(root.bfc_type_name),
+                "variantCount": len(data["geometryVariants"]),
+            }
+
         assert_valid_manifest(data)
+        manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception:
         _remove_partial_export(manifest_path, glb_path, variant_files)
         raise
 
-    manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     return manifest_path, glb_path
