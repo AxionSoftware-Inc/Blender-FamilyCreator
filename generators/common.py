@@ -55,6 +55,47 @@ def _top_level_candidates(objects):
     return result
 
 
+def _snapshot_base(obj):
+    snapshot = {}
+    for key in (core.BASE_MATRIX, core.BASE_BBOX_MIN, core.BASE_BBOX_MAX):
+        value = obj.get(key)
+        if value is not None:
+            try:
+                snapshot[key] = list(value)
+            except TypeError:
+                snapshot[key] = value
+    return snapshot
+
+
+def _refresh_member(root, obj, preserve_base):
+    if not bool(obj.get(core.MEMBER_FLAG, False)):
+        return
+
+    role = getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
+    rules = (obj.bfc_rule_x, obj.bfc_rule_y, obj.bfc_rule_z)
+    base_snapshot = _snapshot_base(obj) if preserve_base else {}
+
+    core.analyze_member(root, obj)
+    obj.bfc_rule_x, obj.bfc_rule_y, obj.bfc_rule_z = rules
+    obj.bfc_member_role = role
+
+    for key, value in base_snapshot.items():
+        obj[key] = value
+
+
+def _refresh_after_transform(root, obj):
+    # Source/template members keep the immutable capture made by Family Analyze.
+    # Generated copies instead adopt their generated placement as their own base,
+    # so future family-dimension updates remain stable and idempotent.
+    generated_root = bool(obj.get(core.GENERATED_FLAG, False))
+    _refresh_member(root, obj, preserve_base=not generated_root)
+
+    if generated_root:
+        for child in obj.children_recursive:
+            if bool(child.get(core.GENERATED_FLAG, False)) and bool(child.get(core.MEMBER_FLAG, False)):
+                _refresh_member(root, child, preserve_base=False)
+
+
 def clear_generated(root, group=None):
     generated = []
     for obj in list(root.children_recursive):
@@ -155,11 +196,7 @@ def _link_clone(root, original, clone):
 
 
 def duplicate_template(root, source, group, name, role=None):
-    """Clone a template root and its complete child subtree.
-
-    Object data is linked, not deep-copied, so repeated cushions/shelves/treads
-    stay memory-efficient while preserving child details and material slots.
-    """
+    """Clone a template root and its complete child subtree with linked data."""
     originals = _object_subtree(source)
     clone_map = {}
     world_matrices = {obj: obj.matrix_world.copy() for obj in originals}
@@ -203,15 +240,14 @@ def duplicate_template(root, source, group, name, role=None):
         if not bool(original.get(core.MEMBER_FLAG, False)):
             continue
         clone[core.MEMBER_FLAG] = True
-        original_rules = (
-            original.bfc_rule_x,
-            original.bfc_rule_y,
-            original.bfc_rule_z,
+        clone.bfc_rule_x = original.bfc_rule_x
+        clone.bfc_rule_y = original.bfc_rule_y
+        clone.bfc_rule_z = original.bfc_rule_z
+        clone.bfc_member_role = (
+            role if original == source and role is not None
+            else (getattr(original, "bfc_member_role", "UNKNOWN") or "UNKNOWN")
         )
-        original_role = getattr(original, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
-        core.analyze_member(root, clone)
-        clone.bfc_rule_x, clone.bfc_rule_y, clone.bfc_rule_z = original_rules
-        clone.bfc_member_role = role if original == source and role is not None else original_role
+        _refresh_member(root, clone, preserve_base=False)
 
     return root_clone
 
@@ -223,8 +259,7 @@ def set_family_local_location(root, obj, axis, value):
     translation[index] = float(value)
     local.translation = translation
     obj.matrix_world = root.matrix_world @ local
-    if bool(obj.get(core.MEMBER_FLAG, False)):
-        core.analyze_member(root, obj)
+    _refresh_after_transform(root, obj)
 
 
 def resize_family_axis(root, obj, axis, target_span):
@@ -243,8 +278,7 @@ def resize_family_axis(root, obj, axis, target_span):
     result = stretch_matrix @ basis
     result.translation = loc
     obj.matrix_world = root.matrix_world @ result
-    if bool(obj.get(core.MEMBER_FLAG, False)):
-        core.analyze_member(root, obj)
+    _refresh_after_transform(root, obj)
 
 
 def resize_family_axis_anchored(root, obj, axis, target_span, anchor="CENTER"):
