@@ -14,6 +14,7 @@ from .hierarchy import create_family_preserving_hierarchy
 from .hosting import hosting_metadata
 from .materials import family_material_metadata
 from .quality import validate_family
+from .runtime_proxy import runtime_proxy_metadata
 from .schema import assert_valid_manifest
 from .thumbnail import DEFAULT_THUMBNAIL_SIZE, render_family_thumbnail
 from .variants import export_baked_type_variants
@@ -233,6 +234,7 @@ def typed_manifest_metadata(root):
         },
         "semanticParameters": semantic_parameter_values(root, type_id),
         "materials": family_material_metadata(root),
+        "runtimeProxy": runtime_proxy_metadata(root),
         "quality": validate_family(root),
         "generator": {
             "supported": supports_generation(type_id),
