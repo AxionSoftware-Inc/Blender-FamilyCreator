@@ -361,12 +361,15 @@ class BFC_OT_export_family(Operator):
                 directory,
                 scene.bfc_export_glb,
                 export_baked_types=scene.bfc_export_baked_types and scene.bfc_export_glb,
+                export_thumbnail=scene.bfc_export_thumbnail,
             )
         except Exception as exc:
             self.report({"ERROR"}, f"Export failed: {exc}")
             return {"CANCELLED"}
         saved_count = len(core.read_types(root)) if scene.bfc_export_baked_types and glb else 1
         suffix = f" + {saved_count} baked type geometry variant(s)" if glb else ""
+        if scene.bfc_export_thumbnail:
+            suffix += " + thumbnail"
         self.report({"INFO"}, f"Exported {manifest.name}" + suffix)
         return {"FINISHED"}
 
@@ -395,6 +398,7 @@ class BFC_OT_batch_convert(Operator):
                 recursive=scene.bfc_batch_recursive,
                 export_glb=scene.bfc_batch_export_glb,
                 export_baked_types=scene.bfc_batch_export_baked_types and scene.bfc_batch_export_glb,
+                export_thumbnail=scene.bfc_batch_export_thumbnail,
                 continue_on_error=scene.bfc_batch_continue_on_error,
                 auto_split_loose=scene.bfc_batch_auto_split_loose,
                 max_loose_islands=scene.bfc_prepare_max_islands,
@@ -404,9 +408,12 @@ class BFC_OT_batch_convert(Operator):
             self.report({"ERROR"}, scene.bfc_batch_last_result)
             return {"CANCELLED"}
 
+        thumbnail_suffix = ""
+        if report.get("thumbnail_warnings"):
+            thumbnail_suffix = f" / {report['thumbnail_warnings']} thumbnail warning"
         scene.bfc_batch_last_result = (
             f"{report['ready']} ready / {report['needs_review']} review / "
-            f"{report['failed']} failed / {report['discovered']} discovered"
+            f"{report['failed']} failed / {report['discovered']} discovered{thumbnail_suffix}"
         )
         message_type = {"WARNING"} if report["failed"] or report["needs_review"] else {"INFO"}
         self.report(message_type, scene.bfc_batch_last_result)
