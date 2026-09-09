@@ -60,11 +60,27 @@ def _draw_batch_factory(layout, scene):
 def _draw_quality(layout, root):
     quality = validate_family(root)
     box = layout.box()
-    icon = "CHECKMARK" if quality["ready"] else "ERROR"
+
+    if quality.get("automaticReady"):
+        icon = "CHECKMARK"
+        status = "Automatic library ready"
+    elif quality.get("ready"):
+        icon = "INFO"
+        status = "Semantically valid — review recommended"
+    else:
+        icon = "ERROR"
+        status = "Not ready — semantic fixes required"
+
     box.label(text=f"Family Quality — {quality['score']}/100", icon=icon)
+    box.label(text=status)
     box.label(text=f"Semantic role coverage: {quality['roleCoverage']:.0%}")
-    if quality["ready"]:
-        box.label(text="Required class roles detected; ready for library review.")
+
+    preflight = quality.get("preflight", {})
+    stats = preflight.get("stats", {})
+    polygons = int(stats.get("meshPolygons", 0) or 0)
+    if polygons:
+        box.label(text=f"Source mesh polygons: {polygons:,}")
+
     for warning in quality.get("warnings", ()):
         box.label(text=warning, icon="INFO")
     for error in quality.get("errors", ()):
@@ -80,7 +96,7 @@ def _draw_hosting(layout, root):
     box.label(text="BIM Hosting / Placement", icon="HOME")
     box.label(text=f"Host: {data['hostType']}  |  Cut: {data['opening']['shape']}")
     box.label(text=f"Insertion: {data['insertionPoint']}")
-    box.label(text=f"Facing: +Y  |  Up: +Z")
+    box.label(text="Facing: +Y  |  Up: +Z")
     opening = data["opening"]
     box.label(
         text=(
@@ -90,6 +106,11 @@ def _draw_hosting(layout, root):
     )
     if root.bfc_family_kind == "WINDOW":
         box.label(text=f"Sill elevation: {data['elevationFromLevel']:.3f} m")
+
+    plan = data.get("planRepresentation")
+    if plan and root.bfc_family_kind == "DOOR":
+        box.label(text=f"Plan swing hinge: {plan.get('hingeSide', 'UNKNOWN')}")
+
     flags = []
     if data.get("canFlipFacing"):
         flags.append("Facing flip")
@@ -115,7 +136,11 @@ def _draw_generator(layout, root):
     box.label(text=f"Generator: {root.bfc_family_kind}  |  Revision: {revision}")
     box.label(text=f"Templates: {template_count}  |  Generated: {generated_count}")
     box.operator("bfc.rebuild_procedural_geometry", icon="FILE_REFRESH")
-    box.label(text="Edit semantic parameters above, then rebuild geometry.")
+    last_error = root.get("bfc_generator_last_error", "")
+    if last_error:
+        box.label(text=f"Last rebuild warning: {last_error}", icon="ERROR")
+    else:
+        box.label(text="Dimensions rebuild supported class geometry automatically.")
     box.label(text="Applying a saved Type rebuilds supported classes automatically.")
 
 
