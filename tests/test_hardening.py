@@ -107,6 +107,9 @@ class HardeningMetricsTests(unittest.TestCase):
         self.assertEqual(result["summary"]["failed"], 1)
         self.assertEqual(result["summary"]["automaticReady"], 1)
         self.assertEqual(result["summary"]["autoAcceptanceRate"], 0.5)
+        self.assertEqual(result["counts"]["needsReview"], 1)
+        self.assertEqual(result["conversionSuccessPercent"], 66.67)
+        self.assertEqual(result["automaticReadyPercent"], 50.0)
         self.assertEqual(result["byClass"]["SOFA"]["converted"], 2)
         self.assertEqual(result["byClass"]["SOFA"]["averageGenericNameShare"], 0.5)
         self.assertEqual(result["byFormat"]["FBX"]["converted"], 1)
@@ -115,6 +118,12 @@ class HardeningMetricsTests(unittest.TestCase):
         self.assertEqual(reasons["LOW_ROLE_COVERAGE"], 1)
         self.assertEqual(reasons["GENERIC_OBJECT_NAMES"], 1)
         self.assertEqual(reasons["CONVERSION_FAILED"], 1)
+        self.assertEqual(result["reasonFrequency"]["LOW_ROLE_COVERAGE"], 1)
+        self.assertEqual(result["reasonFrequency"]["GENERIC_OBJECT_NAMES"], 1)
+        self.assertEqual(result["reasonFrequency"]["CONVERSION_FAILED"], 1)
+        self.assertEqual(len(result["assets"]), 3)
+        self.assertTrue(result["assets"][0]["converted"])
+        self.assertFalse(result["assets"][-1]["converted"])
 
 
 if __name__ == "__main__":
