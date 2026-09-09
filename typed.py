@@ -14,6 +14,7 @@ from .hosting import hosting_metadata
 from .materials import family_material_metadata
 from .quality import validate_family
 from .schema import assert_valid_manifest
+from .variants import export_baked_type_variants
 
 
 def family_profile(root):
@@ -275,8 +276,10 @@ def _inject_member_roles(root, data):
         member["role"] = roles.get(member.get("name"), "UNKNOWN")
 
 
-def _remove_partial_export(manifest_path, glb_path):
-    for path in (manifest_path, glb_path):
+def _remove_partial_export(manifest_path, glb_path, extra_paths=()):
+    paths = [manifest_path, glb_path]
+    paths.extend(extra_paths or ())
+    for path in paths:
         if path is None:
             continue
         try:
@@ -285,16 +288,32 @@ def _remove_partial_export(manifest_path, glb_path):
             pass
 
 
-def export_typed_family(root, directory, export_glb=True):
+def export_typed_family(root, directory, export_glb=True, export_baked_types=False):
     manifest_path, glb_path = core.export_family(root, directory, export_glb)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     data.update(typed_manifest_metadata(root))
     _inject_member_roles(root, data)
 
+    variant_files = []
+    if glb_path is not None:
+        variant_result = export_baked_type_variants(
+            root,
+            directory,
+            glb_path,
+            export_all_types=bool(export_baked_types),
+        )
+        data["geometryVariants"] = variant_result["variants"]
+        variant_files = list(variant_result.get("createdFiles", ()))
+        data["geometryStrategy"] = {
+            "mode": "BAKED_TYPE_VARIANTS" if len(data["geometryVariants"]) > 1 else "BAKED_ACTIVE_TYPE",
+            "activeType": str(root.bfc_type_name),
+            "variantCount": len(data["geometryVariants"]),
+        }
+
     try:
         assert_valid_manifest(data)
     except Exception:
-        _remove_partial_export(manifest_path, glb_path)
+        _remove_partial_export(manifest_path, glb_path, variant_files)
         raise
 
     manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
