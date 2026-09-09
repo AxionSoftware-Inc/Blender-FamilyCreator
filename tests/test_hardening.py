@@ -59,12 +59,20 @@ class HardeningMetricsTests(unittest.TestCase):
                 "message": "Mattress Height is Auto/zero; source geometry kept",
             },
         })
-        missing = review_reasons({
+        ambiguous = review_reasons({
             "quality": base_quality,
             "generator": {
                 "supported": True,
                 "changed": False,
                 "message": "Window Frame Width is Auto/zero or frame roles were not detected",
+            },
+        })
+        missing = review_reasons({
+            "quality": base_quality,
+            "generator": {
+                "supported": True,
+                "changed": False,
+                "message": "BED has no MATTRESS member",
             },
         })
         unknown = review_reasons({
@@ -76,7 +84,8 @@ class HardeningMetricsTests(unittest.TestCase):
             },
         })
         self.assertIn("GENERATOR_PARAMETER_AUTO", auto)
-        self.assertIn("GENERATOR_PARAMETER_AUTO", missing)
+        self.assertIn("GENERATOR_AUTO_OR_MISSING_SEMANTICS", ambiguous)
+        self.assertIn("GENERATOR_MISSING_SEMANTICS", missing)
         self.assertIn("GENERATOR_NO_CHANGE", unknown)
 
     def test_generic_names_do_not_create_reason_when_semantics_are_good(self):
