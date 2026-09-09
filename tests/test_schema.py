@@ -10,6 +10,7 @@ BASE_MANIFEST = {
     "familyId": "axion:table:test_table",
     "familyKind": "TABLE",
     "name": "Test Table",
+    "activeType": "Default",
     "units": {"length": "meter"},
     "coordinateSystems": {
         "family": "RIGHT_HANDED_Z_UP",
@@ -83,6 +84,58 @@ class FamilySchemaTests(unittest.TestCase):
         data["hosting"]["opening"]["height"] = -2.1
         errors = validate_manifest(data)
         self.assertTrue(any("hosting.opening.height" in error for error in errors))
+
+    def test_validates_baked_geometry_variants(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["types"]["Wide"] = {
+            "width": 1.8,
+            "depth": 0.8,
+            "height": 0.75,
+            "semanticParameters": {"top_thickness": 0.04},
+        }
+        data["geometryVariants"] = {
+            "Default": {"uri": "test_table.glb", "baked": True, "primary": True},
+            "Wide": {"uri": "variants/wide.glb", "baked": True, "primary": False},
+        }
+        data["geometryStrategy"] = {
+            "mode": "BAKED_TYPE_VARIANTS",
+            "activeType": "Default",
+            "variantCount": 2,
+        }
+        self.assertEqual(validate_manifest(data), [])
+
+    def test_rejects_variant_primary_mismatch(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["types"]["Wide"] = {
+            "width": 1.8,
+            "depth": 0.8,
+            "height": 0.75,
+            "semanticParameters": {"top_thickness": 0.04},
+        }
+        data["geometryVariants"] = {
+            "Default": {"uri": "test_table.glb", "baked": True, "primary": False},
+            "Wide": {"uri": "variants/wide.glb", "baked": True, "primary": True},
+        }
+        data["geometryStrategy"] = {
+            "mode": "BAKED_TYPE_VARIANTS",
+            "activeType": "Default",
+            "variantCount": 2,
+        }
+        errors = validate_manifest(data)
+        self.assertTrue(any("primary geometry variant" in error for error in errors))
+
+    def test_rejects_absolute_variant_uri(self):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["geometryVariants"] = {
+            "Default": {"uri": "/tmp/test_table.glb", "baked": True, "primary": True},
+        }
+        data["geometryStrategy"] = {
+            "mode": "BAKED_ACTIVE_TYPE",
+            "activeType": "Default",
+            "variantCount": 1,
+        }
+        errors = validate_manifest(data)
+        self.assertTrue(any("relative non-empty path" in error for error in errors))
 
 
 if __name__ == "__main__":
