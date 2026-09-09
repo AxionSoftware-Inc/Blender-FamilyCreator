@@ -48,6 +48,13 @@ def _rule_update(self, context):
 
 def register_properties():
     family_items = family_type_items()
+    batch_family_items = [
+        (
+            "AUTO_FOLDER",
+            "Auto by Folder",
+            "Resolve the exact Family Class from recognized asset folder names; unknown folders are rejected",
+        )
+    ] + list(family_items)
 
     bpy.types.Object.bfc_family_name = StringProperty(name="Family Name", default="Family")
     bpy.types.Object.bfc_category = StringProperty(name="Category", default="Generic Model")
@@ -117,7 +124,7 @@ def register_properties():
     bpy.types.Scene.bfc_batch_input_directory = StringProperty(
         name="Asset Folder",
         subtype="DIR_PATH",
-        description="Folder containing Blender/FBX/GLB/GLTF/OBJ assets of one family class",
+        description="Folder containing Blender/FBX/GLB/GLTF/OBJ assets",
     )
     bpy.types.Scene.bfc_batch_output_directory = StringProperty(
         name="Library Output",
@@ -126,8 +133,8 @@ def register_properties():
     )
     bpy.types.Scene.bfc_batch_family_kind = EnumProperty(
         name="Family Class",
-        description="Family class applied to every asset in this batch",
-        items=family_items,
+        description="Use one exact class or resolve exact classes from recognized folder names",
+        items=batch_family_items,
         default="SOFA",
     )
     bpy.types.Scene.bfc_batch_recursive = BoolProperty(name="Include Subfolders", default=True)
