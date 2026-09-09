@@ -8,7 +8,6 @@ from .core import (
     bind_parameter,
     delete_type,
     family_root,
-    reset_family,
 )
 from .family_types.parameter_specs import property_name
 from .family_types.stair import solve_parameters as solve_stair_parameters
@@ -28,6 +27,29 @@ from .typed import (
 
 def active_root(context):
     return family_root(context.active_object) if context.active_object else None
+
+
+def _set_dimensions_without_callbacks(root, width, depth, height):
+    root["bfc_applying"] = True
+    try:
+        root.bfc_width = float(width)
+        root.bfc_depth = float(depth)
+        root.bfc_height = float(height)
+    finally:
+        root["bfc_applying"] = False
+
+
+def _reset_dimensions_once(root, rebuild=True):
+    _set_dimensions_without_callbacks(
+        root,
+        root.bfc_base_width,
+        root.bfc_base_depth,
+        root.bfc_base_height,
+    )
+    apply_family(root)
+    if rebuild and supports_generation(root.bfc_family_kind):
+        return rebuild_family_geometry(root)
+    return None
 
 
 class BFC_OT_prepare_selection(Operator):
@@ -117,15 +139,22 @@ class BFC_OT_smart_analyze(Operator):
             return {"CANCELLED"}
 
         current = (root.bfc_width, root.bfc_depth, root.bfc_height)
-        reset_family(root)
+
+        # Analyze from the immutable base envelope without running the class
+        # generator three times through property update callbacks.
+        _reset_dimensions_once(root, rebuild=False)
         capture_typed_family(root)
-        root["bfc_applying"] = True
-        try:
-            root.bfc_width, root.bfc_depth, root.bfc_height = current
-        finally:
-            root["bfc_applying"] = False
+        _set_dimensions_without_callbacks(root, *current)
         apply_family(root)
-        self.report({"INFO"}, f"Rules regenerated using {root.bfc_family_kind} logic")
+
+        generator_result = None
+        if supports_generation(root.bfc_family_kind):
+            generator_result = rebuild_family_geometry(root)
+
+        message = f"Rules regenerated using {root.bfc_family_kind} logic"
+        if generator_result and generator_result.get("message"):
+            message += f"; {generator_result['message']}"
+        self.report({"INFO"}, message)
         return {"FINISHED"}
 
 
@@ -138,7 +167,11 @@ class BFC_OT_reset_family(Operator):
         root = active_root(context)
         if not root:
             return {"CANCELLED"}
-        reset_family(root)
+        result = _reset_dimensions_once(root, rebuild=True)
+        if result and result.get("message"):
+            self.report({"INFO"}, f"Base dimensions restored; {result['message']}")
+        else:
+            self.report({"INFO"}, "Base dimensions restored")
         return {"FINISHED"}
 
 
@@ -365,8 +398,8 @@ class BFC_OT_batch_convert(Operator):
             return {"CANCELLED"}
 
         scene.bfc_batch_last_result = (
-            f"{report['converted']} converted / {report['failed']} failed / "
-            f"{report['needs_review']} review / {report['discovered']} discovered"
+            f"{report['ready']} ready / {report['needs_review']} review / "
+            f"{report['failed']} failed / {report['discovered']} discovered"
         )
         message_type = {"WARNING"} if report["failed"] or report["needs_review"] else {"INFO"}
         self.report(message_type, scene.bfc_batch_last_result)
