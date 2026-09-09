@@ -63,6 +63,7 @@ def main():
     print(f"Candidate auto acceptance: {candidate['autoAcceptanceRate']:.1%}")
     print(f"New-asset auto acceptance: {new_assets['autoAcceptanceRate']:.1%}")
     print(f"Overlap regressions: {gate['overlapRegressionCount']}")
+    print(f"Asset-key collisions: {gate.get('assetKeyCollisionCount', 0)}")
     print(f"No-regression gate: {'PASS' if gate['passesNoRegressionGate'] else 'FAIL'}")
     print(f"Output: {output_path}")
 
@@ -70,6 +71,18 @@ def main():
         print("Overlap regressions:")
         for item in result["overlap"]["regressions"]:
             print(f"  {item['assetKey']}: {item['regression']}")
+
+    for label, collisions in (
+        ("Baseline key collisions", corpus.get("baselineKeyCollisions", {})),
+        ("Candidate key collisions", corpus.get("candidateKeyCollisions", {})),
+    ):
+        if not collisions:
+            continue
+        print(label + ":")
+        for key, sources in collisions.items():
+            print(f"  {key}")
+            for source in sources:
+                print(f"    {source}")
 
 
 if __name__ == "__main__":
