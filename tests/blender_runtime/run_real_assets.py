@@ -13,6 +13,7 @@ Example (PowerShell):
 from __future__ import annotations
 
 import argparse
+import importlib
 import importlib.util
 import json
 import sys
@@ -72,9 +73,11 @@ def main():
     output_directory.mkdir(parents=True, exist_ok=True)
 
     addon = load_addon()
+    batch_module = importlib.import_module(f"{ADDON_NAME}.batch")
+    hardening_module = importlib.import_module(f"{ADDON_NAME}.hardening")
     addon.register()
     try:
-        report = addon.batch.batch_convert_directory(
+        report = batch_module.batch_convert_directory(
             bpy.context,
             input_directory,
             output_directory,
@@ -87,7 +90,7 @@ def main():
             auto_split_loose=not args.no_auto_split,
             max_loose_islands=max(2, int(args.max_loose_islands)),
         )
-        hardening = addon.hardening.build_hardening_report(report)
+        hardening = hardening_module.build_hardening_report(report)
         hardening_path = output_directory / "hardening-report.json"
         hardening_path.write_text(json.dumps(hardening, indent=2, ensure_ascii=False), encoding="utf-8")
 
