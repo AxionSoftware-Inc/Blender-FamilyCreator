@@ -1,43 +1,57 @@
-# Axion Family Package — Draft v2
+# Axion Family Package — Schema v2
 
-This document defines the interchange format produced by Blender Family Creator v0.3.
-
-The package is designed so Axion's mobile BIM engine can begin with baked GLB geometry while retaining enough semantic authoring information for progressively richer runtime-parametric behavior later.
+Blender Family Creator v0.4 exports a baked glTF/GLB representation plus a versioned BIM manifest for Axion's mobile BIM engine.
 
 ## Package
-
-A family export contains:
 
 ```text
 family_name.family.json
 family_name.glb
 ```
 
-`family.json` contains BIM/family semantics and authoring metadata. `glb` contains the currently evaluated exportable geometry.
+- `.family.json` is the semantic/runtime contract.
+- `.glb` is the currently evaluated exportable geometry.
+- procedural source templates are retained in Blender authoring state but excluded from GLB.
+- generated instances are included in GLB.
 
-Procedural source templates are intentionally excluded from GLB. Generated geometry is included.
+Before a package is finalized the addon validates the manifest against the schema-v2 invariants implemented in `schema.py`. Invalid partial `.family.json/.glb` output is removed.
 
-## Schema version
-
-```json
-{
-  "schema": "axion.family",
-  "schemaVersion": 2
-}
-```
-
-The mobile BIM importer should reject unsupported schema versions explicitly rather than guessing compatibility.
-
-## Manifest example
+## Identity and compatibility
 
 ```json
 {
   "schema": "axion.family",
   "schemaVersion": 2,
-  "name": "Sofa A",
-  "category": "Furniture",
+  "familyId": "axion:sofa:vendor_a/sofa_01",
   "familyKind": "SOFA",
-  "activeType": "3-seat",
+  "name": "Sofa 01"
+}
+```
+
+`familyId` is the stable runtime/library identity. Batch conversion derives it from Family Class plus source-relative path, avoiding collisions between same-named assets in different folders.
+
+The importer must reject unknown `schemaVersion` values or route them through an explicit migration layer.
+
+## Units and coordinate systems
+
+```json
+{
+  "units": {
+    "length": "meter"
+  },
+  "coordinateSystems": {
+    "family": "RIGHT_HANDED_Z_UP",
+    "geometry": "GLTF_RIGHT_HANDED_Y_UP"
+  }
+}
+```
+
+Family semantic axes use Blender-style right-handed Z-up coordinates. Exported GLB uses the standard glTF right-handed Y-up convention because `export_yup` is enabled. Runtime code must not silently mix the two spaces.
+
+## Dimensions and Types
+
+```json
+{
   "baseDimensions": {
     "width": 2.1,
     "depth": 0.9,
@@ -48,11 +62,7 @@ The mobile BIM importer should reject unsupported schema versions explicitly rat
     "depth": 0.9,
     "height": 0.82
   },
-  "semanticParameters": {
-    "seat_height": 0.44,
-    "arm_width": 0.18,
-    "seat_count": 3
-  },
+  "activeType": "3-seat",
   "types": {
     "3-seat": {
       "width": 2.1,
@@ -64,49 +74,92 @@ The mobile BIM importer should reject unsupported schema versions explicitly rat
         "seat_count": 3
       }
     }
-  },
-  "generator": {
-    "supported": true,
-    "revision": 2
-  },
-  "quality": {
-    "ready": true,
-    "score": 94,
-    "sourceMembers": 11,
-    "roleCoverage": 0.91,
-    "roleCounts": {
-      "SEAT": 3,
-      "ARM_LEFT": 1,
-      "ARM_RIGHT": 1,
-      "BACK": 3,
-      "LEG": 3
-    },
-    "missingRoleGroups": [],
-    "warnings": [],
-    "errors": []
-  },
-  "members": [
-    {
-      "name": "Sofa_A_Seat_01",
-      "type": "MESH",
-      "role": "SEAT",
-      "generated": true,
-      "generatorGroup": "SOFA_SEATS",
-      "rules": {
-        "x": "MOVE",
-        "y": "FIXED",
-        "z": "FIXED"
-      }
-    }
-  ],
-  "templates": [
-    {
-      "name": "Seat_Cushion_Source",
-      "role": "SEAT",
-      "generatorGroup": "SOFA_SEATS"
-    }
-  ],
-  "customParameters": {},
+  }
+}
+```
+
+All dimensions are positive meters. A Family Type is a named snapshot of overall dimensions plus semantic parameters.
+
+## Family Classes
+
+Current schema-v2 authoring classes:
+
+```text
+GENERIC
+SOFA
+TABLE
+CHAIR
+BED
+CABINET
+WARDROBE
+SHELF
+KITCHEN_BASE
+KITCHEN_WALL
+DOOR
+WINDOW
+STAIR
+TOILET
+SINK
+BATHTUB
+```
+
+Different `familyKind` values are separate behavior contracts even where they share low-level transform primitives.
+
+## Semantic parameters
+
+Examples:
+
+```text
+SOFA          seat_height, arm_width, seat_count
+TABLE         top_thickness
+CHAIR         seat_height
+BED           mattress_height
+CABINET       panel_thickness
+WARDROBE      panel_thickness
+SHELF         panel_thickness, shelf_count
+KITCHEN_BASE  panel_thickness, toe_kick_height
+KITCHEN_WALL  panel_thickness
+DOOR          frame_width, panel_thickness
+WINDOW        frame_width, sill_height
+STAIR         total_run, total_rise, tread_depth, riser_height, step_count
+TOILET        connector_height
+SINK          drain_diameter
+BATHTUB       rim_thickness
+```
+
+These IDs are stable semantic keys. Runtime code should never derive behavior by parsing the UI label.
+
+## Member semantics
+
+Each exportable member contains its class role plus axis behavior:
+
+```json
+{
+  "name": "Table_Leg_FL",
+  "type": "MESH",
+  "role": "LEG",
+  "generated": false,
+  "generatorGroup": "",
+  "rules": {
+    "x": "MOVE",
+    "y": "MOVE",
+    "z": "STRETCH"
+  }
+}
+```
+
+Supported rules:
+
+- `STRETCH`: resize on that family axis and follow the class anchor.
+- `MOVE`: retain part size while following the changing boundary.
+- `FIXED`: do not react to that axis.
+
+Typical roles include `SEAT`, `ARM_LEFT`, `TOP`, `LEG`, `FRAME_LEFT`, `GLASS`, `SHELF`, `TREAD`, `RISER`, `BASIN`, `DRAIN`, `BOWL` and `CONNECTOR`.
+
+## Class profile and anchors
+
+```json
+{
   "familyProfile": {
     "label": "Sofa",
     "group": "Furniture",
@@ -124,197 +177,31 @@ The mobile BIM importer should reject unsupported schema versions explicitly rat
       "Y": "CENTER",
       "Z": "MIN"
     },
-    "parameters": [
-      "width",
-      "depth",
-      "height",
-      "seat_height",
-      "arm_width",
-      "seat_count"
-    ]
-  }
-}
-```
-
-Blender distance values are exported in meters.
-
-## Family Class
-
-`familyKind` identifies the exact semantic behavior contract used by the authoring pipeline.
-
-Examples:
-
-```text
-SOFA
-TABLE
-CHAIR
-BED
-CABINET
-WARDROBE
-SHELF
-KITCHEN_BASE
-KITCHEN_WALL
-DOOR
-WINDOW
-STAIR
-TOILET
-SINK
-BATHTUB
-GENERIC
-```
-
-The runtime should not assume that two different `familyKind` values share the same parameter/deformation semantics even when their geometry looks similar.
-
-## Family Types / Variants
-
-`types` stores named parameter snapshots inside one family.
-
-A type contains the overall dimensions plus class-specific `semanticParameters`.
-
-Example:
-
-```json
-{
-  "types": {
-    "2-seat": {
-      "width": 1.6,
-      "depth": 0.9,
-      "height": 0.82,
-      "semanticParameters": {
-        "seat_count": 2,
-        "seat_height": 0.44,
-        "arm_width": 0.18
-      }
-    },
-    "3-seat": {
-      "width": 2.1,
-      "depth": 0.9,
-      "height": 0.82,
-      "semanticParameters": {
-        "seat_count": 3,
-        "seat_height": 0.44,
-        "arm_width": 0.18
-      }
+    "parameters": ["width", "depth", "height", "seat_height", "arm_width", "seat_count"],
+    "roleCounts": {
+      "SEAT": 3,
+      "ARM_LEFT": 1,
+      "ARM_RIGHT": 1
     }
   }
 }
 ```
 
-Applying a saved Type in Blender also runs the class-specific generator when that class supports procedural geometry.
+Draft anchor values are `CENTER`, `MIN`, and `MAX`. A Door with Z=`MIN`, for example, remains on its threshold/floor plane while height changes.
 
-## Semantic parameters
+## Templates and generated members
 
-`semanticParameters` are stable BIM-oriented parameter IDs rather than arbitrary UI labels.
-
-Examples:
-
-- Sofa: `seat_height`, `arm_width`, `seat_count`
-- Table: `top_thickness`
-- Chair: `seat_height`
-- Bed: `mattress_height`
-- Casework: `panel_thickness`
-- Shelf: `panel_thickness`, `shelf_count`
-- Door: `frame_width`, `panel_thickness`
-- Window: `frame_width`, `sill_height`
-- Stair: `total_run`, `total_rise`, `tread_depth`, `riser_height`, `step_count`
-
-A future runtime-parametric implementation should use these IDs instead of parsing human-readable labels.
-
-## Member roles
-
-Each exportable member can include a semantic `role` assigned by its Family Class.
-
-Examples:
-
-```text
-SEAT
-ARM_LEFT
-TOP
-LEG
-FRAME_LEFT
-GLASS
-SHELF
-TREAD
-RISER
-```
-
-The same generic member rule can mean different things in different roles/classes, so `familyKind + role + semanticParameters` is the preferred semantic key.
-
-## Member rules
-
-Every family member can react independently to a dimension axis:
-
-- `STRETCH`: resize geometry on the axis and move with its family anchor.
-- `MOVE`: preserve geometry size while its family-relative position follows the changing boundary.
-- `FIXED`: preserve size and position on that family axis.
-
-Example:
-
-```json
-{
-  "name": "Table_Leg_FL",
-  "role": "LEG",
-  "rules": {
-    "x": "MOVE",
-    "y": "MOVE",
-    "z": "STRETCH"
-  }
-}
-```
-
-These rules are authoring metadata. A runtime that only consumes baked GLB does not need to reproduce them.
-
-## Semantic axis anchors
-
-`familyProfile.axisAnchors` describes where overall dimensional changes are anchored.
-
-Supported draft values:
-
-```text
-CENTER
-MIN
-MAX
-```
-
-Examples:
-
-- Door Z = `MIN`: door remains on its floor/base plane as height changes.
-- Table Z = `MIN`: legs grow upward from the floor.
-- Stair Y/Z = `MIN`: run/rise begin at the stair start rather than expanding around the center.
-
-## Procedural templates and generated members
-
-Repeated geometry uses nondestructive template/source objects.
-
-Template records are included in JSON authoring metadata but are excluded from GLB:
+Procedural repetition is nondestructive. Original source modules become hidden authoring templates, while generated copies carry a generator group.
 
 ```json
 {
   "templates": [
     {
-      "name": "Shelf_Source",
-      "role": "SHELF",
-      "generatorGroup": "SHELF_LEVELS"
+      "name": "Seat_Source",
+      "role": "SEAT",
+      "generatorGroup": "SOFA_SEATS"
     }
-  ]
-}
-```
-
-Generated members identify their source generator group:
-
-```json
-{
-  "generated": true,
-  "generatorGroup": "SHELF_LEVELS"
-}
-```
-
-The runtime does not need the original template object if it consumes baked geometry. Template metadata is retained so authoring/debugging tools can reconstruct how the family was built.
-
-## Generator metadata
-
-```json
-{
+  ],
   "generator": {
     "supported": true,
     "revision": 4
@@ -322,91 +209,151 @@ The runtime does not need the original template object if it consumes baked geom
 }
 ```
 
-`revision` is an authoring rebuild counter, not a schema compatibility version.
+Template object subtrees are duplicated with linked mesh data where possible, preserving child details/materials without duplicating the mesh payload in Blender memory.
 
-## Quality report
+`generator.revision` is an authoring rebuild counter, not a schema compatibility version.
 
-Every converted family can carry a quality report:
+## Hosted Door / Window semantics
+
+Hosted opening families add a `hosting` record:
 
 ```json
 {
-  "quality": {
-    "ready": false,
-    "score": 61,
-    "roleCoverage": 0.72,
-    "missingRoleGroups": [
-      ["FRAME_LEFT", "FRAME_RIGHT", "FRAME_HEAD"]
-    ],
-    "warnings": [],
-    "errors": [
-      "Missing required role: FRAME_LEFT or FRAME_RIGHT or FRAME_HEAD"
-    ]
+  "hosting": {
+    "hostType": "WALL",
+    "cutHost": true,
+    "opening": {
+      "shape": "RECTANGLE",
+      "width": 0.9,
+      "height": 2.1,
+      "depth": 0.15
+    },
+    "insertionPoint": "THRESHOLD_CENTER",
+    "placementOriginLocal": [0.0, 0.0, -1.05],
+    "elevationFromLevel": 0.0,
+    "facingDirection": [0.0, 1.0, 0.0],
+    "upDirection": [0.0, 0.0, 1.0],
+    "canFlipFacing": true,
+    "canFlipHand": true,
+    "planRepresentation": {
+      "type": "DOOR_SWING",
+      "openingWidth": 0.9,
+      "leafLength": 0.9,
+      "hingeSide": "LEFT",
+      "swingAngleDegrees": 90.0,
+      "swingDirection": "UNKNOWN"
+    }
   }
 }
 ```
 
-This is primarily library-production metadata. The mobile BIM runtime may ignore it after an asset has been approved, but ingestion/library tooling should be able to reject or quarantine `ready=false` families.
+Window uses `SILL_CENTER`, exports `elevationFromLevel` from `sill_height`, and uses a `WINDOW_OPENING` plan representation.
 
-## Custom parameters
+Door hinge side is inferred from `HINGE` role location, with handle location as fallback. Swing direction remains `UNKNOWN` when it cannot be inferred safely.
 
-`customParameters` remains available for advanced author-defined numeric values/drivers that are not part of the stable class semantic contract.
+## Materials
 
-Runtime code should prefer class-defined `semanticParameters` whenever possible.
+GLB remains the source of geometry, textures and actual render material payloads. JSON adds stable material identification and lightweight PBR metadata for runtime search/replacement:
 
-## Runtime strategy
+```json
+{
+  "materials": [
+    {
+      "id": "oak",
+      "name": "Oak",
+      "pbr": {
+        "baseColorFactor": [0.5, 0.3, 0.15, 1.0],
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.55,
+        "alphaFactor": 1.0
+      },
+      "usages": [
+        {"member": "TableTop", "slot": 0}
+      ]
+    }
+  ]
+}
+```
 
-Two execution modes are intentionally supported.
+Material IDs are slugged and collision-safe within one family.
 
-### Baked family geometry
+## Quality and preflight
 
-The exported GLB is the evaluated family geometry for the active Type.
+```json
+{
+  "quality": {
+    "ready": true,
+    "automaticReady": false,
+    "reviewRecommended": true,
+    "score": 86,
+    "roleCoverage": 0.95,
+    "missingRoleGroups": [],
+    "missingRecommendedRoleGroups": [],
+    "preflight": {
+      "reviewRecommended": true,
+      "stats": {
+        "meshPolygons": 620000,
+        "nonUniformScaleMembers": 0
+      },
+      "warnings": ["Heavy source geometry: 620,000 polygons"],
+      "severe": []
+    },
+    "warnings": ["Heavy source geometry: 620,000 polygons"],
+    "errors": []
+  }
+}
+```
 
-Advantages:
+- `ready`: required semantic class roles are present.
+- `automaticReady`: family can enter the library without manual review.
+- `reviewRecommended`: conversion succeeded, but semantics/preflight recommend inspection.
 
-- simplest mobile runtime;
-- deterministic visuals;
-- Blender-specific generation code does not have to be reimplemented.
+Preflight currently checks source polygon count, canonical scale, non-uniform scale, mirrored transforms, shape keys, armatures and suspicious class dimensions/unit scale.
 
-### Runtime-parametric family
+## Source traceability
 
-The engine uses `familyKind`, semantic parameters, anchors, roles and rules to regenerate simple supported classes itself.
+Batch-generated packages can include:
 
-Advantages:
+```json
+{
+  "source": {
+    "asset": "/source/vendor_a/sofa_01.glb",
+    "key": "vendor_a/sofa_01"
+  }
+}
+```
 
-- continuous parameter editing inside the mobile BIM app;
-- fewer baked geometry variants.
+This is library-production metadata and is not required for runtime rendering.
 
-Recommended migration path:
+## Advanced custom parameters
 
-1. ingest baked GLB + semantic JSON;
-2. support runtime width/height/depth for simple classes;
-3. implement selected semantic generators such as Sofa seat count and Stair step generation;
-4. keep complex/unsupported families baked.
+`customParameters` remains available for author-defined numeric values and Blender driver bindings outside the stable class contract. Mobile/runtime implementations should prefer `semanticParameters` for known class behavior.
 
-## Fields planned for later versions
+## Runtime adoption path
 
-- `familyId`
+Recommended mobile-engine rollout:
+
+1. ingest baked GLB + schema-v2 JSON;
+2. index by `familyId`, `familyKind`, Types and materials;
+3. implement Wall-host placement/cutting for Door/Window;
+4. support direct width/height/depth editing for simple classes;
+5. port selected semantic generators such as Sofa seat count and straight Stair generation;
+6. leave complex/unsupported deformation baked until a matching runtime generator exists.
+
+## Future schema candidates
+
+Potential later-version fields include:
+
 - `categoryId`
 - `manufacturer`
 - `modelNumber`
-- `hostType`
-- `placementOrigin`
-- `facingDirection`
-- `cutOpening`
-- `materials`
-- `materialParameters`
-- `connectors`
-- `lods`
-- `collision`
-- `planRepresentation`
-- `thumbnail`
-- `units`
-- `constraints`
-- `formulas`
-- `nestedFamilies`
-- `sourceLicense`
-- `sourceAttribution`
+- richer connector definitions
+- LODs
+- collision meshes
+- thumbnails
+- constraints/formulas
+- nested families
+- source licensing/attribution
+- richer material parameters and texture references
 
-## Compatibility rule
-
-The mobile BIM importer must treat `schemaVersion` as an explicit compatibility boundary. Unknown versions should be rejected or routed through a migration layer rather than parsed heuristically.
+Adding incompatible semantics requires a new schema version or an explicit backward-compatible extension rule.
