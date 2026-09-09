@@ -15,6 +15,10 @@ def _reason(code, detail=None):
     return code if not detail else f"{code}:{detail}"
 
 
+def _reason_code(reason):
+    return str(reason).split(":", 1)[0]
+
+
 def review_reasons(item):
     quality = item.get("quality", {}) if isinstance(item.get("quality"), dict) else {}
     reasons = []
@@ -99,7 +103,9 @@ def build_hardening_report(report):
         "needsReview": 0,
     })
     reason_counts = Counter()
+    compact_reason_counts = Counter()
     reason_examples = defaultdict(list)
+    asset_summaries = []
 
     for item in results:
         family_kind = str(item.get("family_kind", "GENERIC") or "GENERIC")
@@ -124,18 +130,47 @@ def build_hardening_report(report):
         format_stats["automaticReady"] += int(automatic_ready)
         format_stats["needsReview"] += int(not automatic_ready)
 
-        for reason in review_reasons(item):
+        item_reasons = review_reasons(item)
+        compact_reasons = sorted({_reason_code(reason) for reason in item_reasons})
+        asset_summaries.append({
+            "source": str(source or ""),
+            "format": source_format.lower(),
+            "familyKind": family_kind,
+            "converted": True,
+            "automaticReady": automatic_ready,
+            "score": int(quality.get("score", 0) or 0),
+            "roleCoverage": float(quality.get("roleCoverage", 0.0) or 0.0),
+            "reasons": compact_reasons,
+            "detailedReasons": item_reasons,
+        })
+
+        for reason in item_reasons:
             reason_counts[reason] += 1
+            compact_reason_counts[_reason_code(reason)] += 1
             if len(reason_examples[reason]) < 5:
                 reason_examples[reason].append(str(source or item.get("family") or ""))
 
     for error in errors:
         source = error.get("source") if isinstance(error, dict) else None
-        by_format[_source_format(source)]["discovered"] += 1
-        by_format[_source_format(source)]["failed"] += 1
+        source_format = _source_format(source)
+        by_format[source_format]["discovered"] += 1
+        by_format[source_format]["failed"] += 1
         reason_counts["CONVERSION_FAILED"] += 1
+        compact_reason_counts["CONVERSION_FAILED"] += 1
         if len(reason_examples["CONVERSION_FAILED"]) < 5:
             reason_examples["CONVERSION_FAILED"].append(str(source or ""))
+        asset_summaries.append({
+            "source": str(source or ""),
+            "format": source_format.lower(),
+            "familyKind": None,
+            "converted": False,
+            "automaticReady": False,
+            "score": 0,
+            "roleCoverage": 0.0,
+            "reasons": ["CONVERSION_FAILED"],
+            "detailedReasons": ["CONVERSION_FAILED"],
+            "error": str(error.get("error", "") if isinstance(error, dict) else error),
+        })
 
     normalized_classes = {}
     for family_kind, stats in sorted(by_class.items()):
@@ -162,6 +197,8 @@ def build_hardening_report(report):
     converted = len(results)
     automatic_ready = sum(1 for item in results if bool((item.get("quality") or {}).get("automaticReady", False)))
     discovered = int(report.get("discovered", converted + len(errors)) or (converted + len(errors)))
+    failed = len(errors)
+    needs_review = converted - automatic_ready
 
     top_reasons = [
         {
@@ -173,22 +210,37 @@ def build_hardening_report(report):
         for reason, count in sorted(reason_counts.items(), key=lambda pair: (-pair[1], pair[0]))
     ]
 
+    summary = {
+        "discovered": discovered,
+        "converted": converted,
+        "failed": failed,
+        "automaticReady": automatic_ready,
+        "needsReview": needs_review,
+        "conversionSuccessRate": _rounded_average(converted, discovered),
+        "autoAcceptanceRate": _rounded_average(automatic_ready, converted),
+    }
+
     return {
         "schema": HARDENING_SCHEMA,
         "schemaVersion": HARDENING_VERSION,
         "inputDirectory": report.get("input_directory"),
         "outputDirectory": report.get("output_directory"),
         "requestedFamilyKind": report.get("family_kind"),
-        "summary": {
+        "summary": summary,
+        # Compact mirrors make before/after corpus review easy without losing the
+        # detailed reason entries above.
+        "counts": {
             "discovered": discovered,
             "converted": converted,
-            "failed": len(errors),
+            "failed": failed,
             "automaticReady": automatic_ready,
-            "needsReview": converted - automatic_ready,
-            "conversionSuccessRate": _rounded_average(converted, discovered),
-            "autoAcceptanceRate": _rounded_average(automatic_ready, converted),
+            "needsReview": needs_review,
         },
+        "conversionSuccessPercent": round(summary["conversionSuccessRate"] * 100.0, 2),
+        "automaticReadyPercent": round(summary["autoAcceptanceRate"] * 100.0, 2),
         "byClass": normalized_classes,
         "byFormat": normalized_formats,
+        "reasonFrequency": dict(sorted(compact_reason_counts.items())),
         "reviewReasons": top_reasons,
+        "assets": asset_summaries,
     }
