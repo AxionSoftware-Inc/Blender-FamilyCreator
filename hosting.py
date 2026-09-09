@@ -1,3 +1,4 @@
+from . import core
 from .family_types.parameter_specs import property_name
 
 
@@ -37,11 +38,55 @@ def _semantic_float(root, name, fallback=0.0):
 
 
 def placement_origin_local(root, family_kind):
-    # Family roots are centered on the source bounding box. Door threshold and
-    # window sill insertion points live at the lower center of the opening.
     if family_kind in {"DOOR", "WINDOW"}:
         return (0.0, 0.0, -float(root.bfc_height) * 0.5)
     return (0.0, 0.0, 0.0)
+
+
+def _role_centers_x(root, roles):
+    values = []
+    for obj in core.family_members(root):
+        if bool(obj.get(core.GENERATED_FLAG, False)):
+            continue
+        role = getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
+        if role not in roles:
+            continue
+        mins, maxs = core.local_bbox(obj, root)
+        values.append(float((mins.x + maxs.x) * 0.5))
+    return values
+
+
+def infer_door_hinge_side(root):
+    hinges = _role_centers_x(root, {"HINGE"})
+    if hinges:
+        return "LEFT" if sum(hinges) / len(hinges) < 0.0 else "RIGHT"
+
+    # Handles normally sit opposite the hinge side, which gives a useful
+    # fallback for downloaded doors that merged hinge hardware into the frame.
+    handles = _role_centers_x(root, {"HANDLE"})
+    if handles:
+        return "RIGHT" if sum(handles) / len(handles) < 0.0 else "LEFT"
+    return "UNKNOWN"
+
+
+def _plan_representation(root, family_kind):
+    if family_kind == "DOOR":
+        hinge_side = infer_door_hinge_side(root)
+        return {
+            "type": "DOOR_SWING",
+            "openingWidth": float(root.bfc_width),
+            "leafLength": float(root.bfc_width),
+            "hingeSide": hinge_side,
+            "swingAngleDegrees": 90.0,
+            "swingDirection": "UNKNOWN",
+        }
+    if family_kind == "WINDOW":
+        return {
+            "type": "WINDOW_OPENING",
+            "openingWidth": float(root.bfc_width),
+            "frameDepth": float(root.bfc_depth),
+        }
+    return None
 
 
 def hosting_metadata(root):
@@ -62,7 +107,7 @@ def hosting_metadata(root):
         "depth": float(root.bfc_depth),
     }
 
-    return {
+    data = {
         "hostType": profile["hostType"],
         "cutHost": bool(profile["cutHost"]),
         "opening": opening,
@@ -74,3 +119,7 @@ def hosting_metadata(root):
         "canFlipFacing": bool(profile["canFlipFacing"]),
         "canFlipHand": bool(profile["canFlipHand"]),
     }
+    plan = _plan_representation(root, family_kind)
+    if plan is not None:
+        data["planRepresentation"] = plan
+    return data
