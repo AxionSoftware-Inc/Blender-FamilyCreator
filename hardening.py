@@ -132,7 +132,9 @@ def build_hardening_report(report):
     errors = list(report.get("errors", ()) or ())
 
     by_class = defaultdict(lambda: {
+        "discovered": 0,
         "converted": 0,
+        "failed": 0,
         "automaticReady": 0,
         "needsReview": 0,
         "scoreTotal": 0.0,
@@ -171,6 +173,7 @@ def build_hardening_report(report):
             unknown_samples = []
 
         class_stats = by_class[family_kind]
+        class_stats["discovered"] += 1
         class_stats["converted"] += 1
         class_stats["automaticReady"] += int(automatic_ready)
         class_stats["needsReview"] += int(not automatic_ready)
@@ -217,16 +220,27 @@ def build_hardening_report(report):
     for error in errors:
         source = error.get("source") if isinstance(error, dict) else None
         source_format = _source_format(source)
+        family_kind = ""
+        if isinstance(error, dict):
+            family_kind = str(error.get("family_kind", "") or "").upper()
+
+        if family_kind:
+            class_stats = by_class[family_kind]
+            class_stats["discovered"] += 1
+            class_stats["failed"] += 1
+
         by_format[source_format]["discovered"] += 1
         by_format[source_format]["failed"] += 1
         reason_counts["CONVERSION_FAILED"] += 1
         compact_reason_counts["CONVERSION_FAILED"] += 1
         if len(reason_examples["CONVERSION_FAILED"]) < 5:
             reason_examples["CONVERSION_FAILED"].append(str(source or ""))
+
+        error_data = error if isinstance(error, dict) else {}
         asset_summaries.append({
             "source": str(source or ""),
             "format": source_format.lower(),
-            "familyKind": None,
+            "familyKind": family_kind or None,
             "converted": False,
             "automaticReady": False,
             "score": 0,
@@ -237,16 +251,22 @@ def build_hardening_report(report):
             "generator": None,
             "reasons": ["CONVERSION_FAILED"],
             "detailedReasons": ["CONVERSION_FAILED"],
-            "error": str(error.get("error", "") if isinstance(error, dict) else error),
+            "error": str(error_data.get("error", "") if isinstance(error, dict) else error),
+            "outputKey": error_data.get("output_key"),
+            "familyId": error_data.get("family_id"),
         })
 
     normalized_classes = {}
     for family_kind, stats in sorted(by_class.items()):
+        discovered = stats["discovered"]
         converted = stats["converted"]
         normalized_classes[family_kind] = {
+            "discovered": discovered,
             "converted": converted,
+            "failed": stats["failed"],
             "automaticReady": stats["automaticReady"],
             "needsReview": stats["needsReview"],
+            "conversionSuccessRate": _rounded_average(converted, discovered),
             "autoAcceptanceRate": _rounded_average(stats["automaticReady"], converted),
             "averageScore": round(_rounded_average(stats["scoreTotal"], converted), 2),
             "averageRoleCoverage": _rounded_average(stats["coverageTotal"], converted),
