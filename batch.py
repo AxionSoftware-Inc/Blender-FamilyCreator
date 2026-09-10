@@ -84,6 +84,31 @@ def _new_objects(before):
     return [obj for obj in bpy.data.objects if obj not in before]
 
 
+def _object_type_counts(objects):
+    counts = Counter(
+        str(getattr(obj, "type", "UNKNOWN") or "UNKNOWN")
+        for obj in objects
+        if obj is not None
+    )
+    return dict(sorted(counts.items()))
+
+
+def _unsupported_geometry_detail(objects):
+    type_counts = _object_type_counts(objects)
+    type_text = ", ".join(
+        f"{object_type}={count}"
+        for object_type, count in type_counts.items()
+    ) or "none"
+    collection_instances = sum(
+        1
+        for obj in objects
+        if obj is not None and getattr(obj, "instance_collection", None) is not None
+    )
+    if collection_instances:
+        return f"object types: {type_text}; collection instances={collection_instances}"
+    return f"object types: {type_text}"
+
+
 def _import_blend(filepath, context):
     with bpy.data.libraries.load(str(filepath), link=False) as (data_from, data_to):
         data_to.objects = list(data_from.objects)
@@ -212,7 +237,8 @@ def convert_asset(
         owned_datablocks = _collect_owned_datablocks(imported)
         geometry = [obj for obj in prepared_objects if obj.type in SUPPORTED_TYPES]
         if not geometry:
-            raise ValueError("No supported mesh/curve geometry found")
+            detail = _unsupported_geometry_detail(prepared_objects)
+            raise ValueError(f"No supported mesh/curve geometry found ({detail})")
 
         key = Path(output_key) if output_key is not None else Path(filepath.stem)
         family_id = _family_id_from_key(family_kind, key)
@@ -310,8 +336,11 @@ def _finalize_report(output_directory, report):
     report["thumbnail_warnings"] = sum(
         1 for item in report.get("results", []) if item.get("export_warnings")
     )
+    class_items = list(report.get("results", [])) + list(report.get("errors", []))
     report["resolved_class_counts"] = dict(sorted(Counter(
-        item.get("family_kind", "GENERIC") for item in report.get("results", [])
+        item.get("family_kind")
+        for item in class_items
+        if item.get("family_kind")
     ).items()))
 
     review_payload = _review_queue_payload(report)
@@ -356,6 +385,7 @@ def batch_convert_directory(
     results = []
     errors = []
     for filepath in assets:
+        actual_kind = None
         try:
             actual_kind = _resolve_requested_family_kind(family_kind, filepath, input_directory)
             results.append(
@@ -373,7 +403,15 @@ def batch_convert_directory(
                 )
             )
         except Exception as exc:
-            errors.append({"source": str(filepath), "error": str(exc)})
+            error = {
+                "source": str(filepath),
+                "output_key": output_keys[filepath].as_posix(),
+                "error": str(exc),
+            }
+            if actual_kind is not None:
+                error["family_kind"] = actual_kind
+                error["family_id"] = _family_id_from_key(actual_kind, output_keys[filepath])
+            errors.append(error)
             if not continue_on_error:
                 report = {
                     "family_kind": family_kind,
