@@ -61,34 +61,54 @@ def _delta(before, after):
     return round(_number(after) - _number(before), 4)
 
 
+def _class_snapshot(entry):
+    converted = _integer(entry.get("converted"))
+    failed = _integer(entry.get("failed"))
+    discovered_raw = entry.get("discovered")
+    discovered = (
+        converted + failed
+        if discovered_raw is None
+        else _integer(discovered_raw)
+    )
+    return {
+        "discovered": discovered,
+        "converted": converted,
+        "failed": failed,
+        "automaticReady": _integer(entry.get("automaticReady")),
+        "conversionSuccessRate": _number(
+            entry.get(
+                "conversionSuccessRate",
+                converted / discovered if discovered else 0.0,
+            )
+        ),
+        "autoAcceptanceRate": _number(entry.get("autoAcceptanceRate")),
+        "averageScore": _number(entry.get("averageScore")),
+        "averageRoleCoverage": _number(entry.get("averageRoleCoverage")),
+    }
+
+
 def _class_delta(baseline, candidate):
     before = baseline.get("byClass", {}) if isinstance(baseline.get("byClass"), dict) else {}
     after = candidate.get("byClass", {}) if isinstance(candidate.get("byClass"), dict) else {}
     result = {}
     for family_kind in sorted(set(before) | set(after)):
-        old = before.get(family_kind, {}) or {}
-        new = after.get(family_kind, {}) or {}
+        old = _class_snapshot(before.get(family_kind, {}) or {})
+        new = _class_snapshot(after.get(family_kind, {}) or {})
         result[family_kind] = {
-            "baseline": {
-                "converted": _integer(old.get("converted")),
-                "automaticReady": _integer(old.get("automaticReady")),
-                "autoAcceptanceRate": _number(old.get("autoAcceptanceRate")),
-                "averageScore": _number(old.get("averageScore")),
-                "averageRoleCoverage": _number(old.get("averageRoleCoverage")),
-            },
-            "candidate": {
-                "converted": _integer(new.get("converted")),
-                "automaticReady": _integer(new.get("automaticReady")),
-                "autoAcceptanceRate": _number(new.get("autoAcceptanceRate")),
-                "averageScore": _number(new.get("averageScore")),
-                "averageRoleCoverage": _number(new.get("averageRoleCoverage")),
-            },
+            "baseline": old,
+            "candidate": new,
             "delta": {
-                "converted": _integer(new.get("converted")) - _integer(old.get("converted")),
-                "automaticReady": _integer(new.get("automaticReady")) - _integer(old.get("automaticReady")),
-                "autoAcceptanceRate": _delta(old.get("autoAcceptanceRate"), new.get("autoAcceptanceRate")),
-                "averageScore": _delta(old.get("averageScore"), new.get("averageScore")),
-                "averageRoleCoverage": _delta(old.get("averageRoleCoverage"), new.get("averageRoleCoverage")),
+                "discovered": new["discovered"] - old["discovered"],
+                "converted": new["converted"] - old["converted"],
+                "failed": new["failed"] - old["failed"],
+                "automaticReady": new["automaticReady"] - old["automaticReady"],
+                "conversionSuccessRate": _delta(
+                    old["conversionSuccessRate"],
+                    new["conversionSuccessRate"],
+                ),
+                "autoAcceptanceRate": _delta(old["autoAcceptanceRate"], new["autoAcceptanceRate"]),
+                "averageScore": _delta(old["averageScore"], new["averageScore"]),
+                "averageRoleCoverage": _delta(old["averageRoleCoverage"], new["averageRoleCoverage"]),
             },
         }
     return result
@@ -132,23 +152,41 @@ def _subset_metrics(assets):
     coverage_total = sum(_number(asset.get("roleCoverage")) for asset in converted)
     score_total = sum(_number(asset.get("score")) for asset in converted)
     reasons = Counter()
-    by_class = defaultdict(lambda: {"count": 0, "automaticReady": 0, "coverageTotal": 0.0})
-    for asset in converted:
+    by_class = defaultdict(lambda: {
+        "count": 0,
+        "converted": 0,
+        "failed": 0,
+        "automaticReady": 0,
+        "coverageTotal": 0.0,
+    })
+
+    for asset in assets:
         for reason in asset.get("reasons", ()) or ():
             reasons[str(reason)] += 1
+
         family_kind = str(asset.get("familyKind", "UNKNOWN") or "UNKNOWN")
         entry = by_class[family_kind]
         entry["count"] += 1
-        entry["automaticReady"] += int(bool(asset.get("automaticReady", False)))
-        entry["coverageTotal"] += _number(asset.get("roleCoverage"))
+        if bool(asset.get("converted", False)):
+            entry["converted"] += 1
+            entry["automaticReady"] += int(bool(asset.get("automaticReady", False)))
+            entry["coverageTotal"] += _number(asset.get("roleCoverage"))
+        else:
+            entry["failed"] += 1
+
     normalized_classes = {}
     for family_kind, entry in sorted(by_class.items()):
         count = entry["count"]
+        converted_count = entry["converted"]
         normalized_classes[family_kind] = {
             "count": count,
+            "discovered": count,
+            "converted": converted_count,
+            "failed": entry["failed"],
             "automaticReady": entry["automaticReady"],
-            "autoAcceptanceRate": round(entry["automaticReady"] / count, 4) if count else 0.0,
-            "averageRoleCoverage": round(entry["coverageTotal"] / count, 4) if count else 0.0,
+            "conversionSuccessRate": round(converted_count / count, 4) if count else 0.0,
+            "autoAcceptanceRate": round(entry["automaticReady"] / converted_count, 4) if converted_count else 0.0,
+            "averageRoleCoverage": round(entry["coverageTotal"] / converted_count, 4) if converted_count else 0.0,
         }
     return {
         "count": len(assets),
