@@ -155,7 +155,13 @@ class HardeningMetricsTests(unittest.TestCase):
                     },
                 },
             ],
-            "errors": [{"source": "assets/doors/bad.obj", "error": "import failed"}],
+            "errors": [{
+                "source": "assets/doors/bad.obj",
+                "family_kind": "DOOR",
+                "output_key": "doors/bad",
+                "family_id": "axion:door:doors/bad",
+                "error": "import failed",
+            }],
         }
         result = build_hardening_report(report)
         self.assertEqual(result["summary"]["discovered"], 3)
@@ -166,8 +172,15 @@ class HardeningMetricsTests(unittest.TestCase):
         self.assertEqual(result["counts"]["needsReview"], 1)
         self.assertEqual(result["conversionSuccessPercent"], 66.67)
         self.assertEqual(result["automaticReadyPercent"], 50.0)
+        self.assertEqual(result["byClass"]["SOFA"]["discovered"], 2)
         self.assertEqual(result["byClass"]["SOFA"]["converted"], 2)
+        self.assertEqual(result["byClass"]["SOFA"]["failed"], 0)
+        self.assertEqual(result["byClass"]["SOFA"]["conversionSuccessRate"], 1.0)
         self.assertEqual(result["byClass"]["SOFA"]["averageGenericNameShare"], 0.5)
+        self.assertEqual(result["byClass"]["DOOR"]["discovered"], 1)
+        self.assertEqual(result["byClass"]["DOOR"]["converted"], 0)
+        self.assertEqual(result["byClass"]["DOOR"]["failed"], 1)
+        self.assertEqual(result["byClass"]["DOOR"]["conversionSuccessRate"], 0.0)
         self.assertEqual(result["byFormat"]["FBX"]["converted"], 1)
         self.assertEqual(result["byFormat"]["OBJ"]["failed"], 1)
         reasons = {item["reason"]: item["count"] for item in result["reviewReasons"]}
@@ -186,6 +199,9 @@ class HardeningMetricsTests(unittest.TestCase):
         self.assertEqual(len(result["assets"]), 3)
         self.assertTrue(result["assets"][0]["converted"])
         self.assertFalse(result["assets"][-1]["converted"])
+        self.assertEqual(result["assets"][-1]["familyKind"], "DOOR")
+        self.assertEqual(result["assets"][-1]["outputKey"], "doors/bad")
+        self.assertEqual(result["assets"][-1]["familyId"], "axion:door:doors/bad")
 
 
 if __name__ == "__main__":
