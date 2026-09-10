@@ -214,6 +214,69 @@ class HardeningCompareTests(unittest.TestCase):
         self.assertEqual(result["gate"]["assetKeyCollisionCount"], 1)
         self.assertIn("BED:bed.blend", result["corpus"]["candidateKeyCollisions"])
 
+    def test_failed_new_asset_keeps_class_and_failure_reason(self):
+        candidate = {
+            "summary": {
+                "discovered": 2,
+                "converted": 1,
+                "failed": 1,
+                "automaticReady": 1,
+                "needsReview": 0,
+                "conversionSuccessRate": 0.5,
+                "autoAcceptanceRate": 1.0,
+            },
+            "byClass": {
+                "WINDOW": {
+                    "discovered": 2,
+                    "converted": 1,
+                    "failed": 1,
+                    "automaticReady": 1,
+                    "conversionSuccessRate": 0.5,
+                    "autoAcceptanceRate": 1.0,
+                    "averageScore": 100,
+                    "averageRoleCoverage": 1.0,
+                }
+            },
+            "assets": [
+                {
+                    "source": r"D:\expanded\windows\good.blend",
+                    "familyKind": "WINDOW",
+                    "converted": True,
+                    "automaticReady": True,
+                    "score": 100,
+                    "roleCoverage": 1.0,
+                    "reasons": [],
+                },
+                {
+                    "source": r"D:\expanded\windows\stained.blend",
+                    "familyKind": "WINDOW",
+                    "converted": False,
+                    "automaticReady": False,
+                    "score": 0,
+                    "roleCoverage": 0.0,
+                    "reasons": ["CONVERSION_FAILED"],
+                },
+            ],
+        }
+
+        result = compare_hardening_reports({"summary": {}, "assets": []}, candidate)
+        self.assertEqual(result["corpus"]["newCount"], 2)
+        self.assertIn("WINDOW:good.blend", result["corpus"]["newAssetKeys"])
+        self.assertIn("WINDOW:stained.blend", result["corpus"]["newAssetKeys"])
+        self.assertEqual(result["newAssets"]["count"], 2)
+        self.assertEqual(result["newAssets"]["converted"], 1)
+        self.assertEqual(result["newAssets"]["failed"], 1)
+        self.assertEqual(result["newAssets"]["reasonFrequency"]["CONVERSION_FAILED"], 1)
+        window = result["newAssets"]["byClass"]["WINDOW"]
+        self.assertEqual(window["count"], 2)
+        self.assertEqual(window["discovered"], 2)
+        self.assertEqual(window["converted"], 1)
+        self.assertEqual(window["failed"], 1)
+        self.assertEqual(window["conversionSuccessRate"], 0.5)
+        self.assertEqual(window["autoAcceptanceRate"], 1.0)
+        self.assertEqual(result["classDelta"]["WINDOW"]["candidate"]["discovered"], 2)
+        self.assertEqual(result["classDelta"]["WINDOW"]["candidate"]["failed"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
