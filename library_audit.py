@@ -39,6 +39,19 @@ def _warning(code, manifest, **extra):
     return item
 
 
+def _check_uri(manifest_path, root, manifest_rel, uri, *, kind, label=None):
+    label_fields = {"label": str(label)} if label is not None else {}
+    upper = str(kind).upper()
+    if not isinstance(uri, str) or not uri.strip():
+        return _warning(f"INVALID_{upper}_URI", manifest_rel, uri=uri, **label_fields)
+    resolved = _resolve_uri(manifest_path, root, uri)
+    if resolved is None:
+        return _warning(f"UNSAFE_{upper}_URI", manifest_rel, uri=uri, **label_fields)
+    if not resolved.is_file():
+        return _warning(f"MISSING_{upper}_FILE", manifest_rel, uri=uri, **label_fields)
+    return None
+
+
 def _manifest_asset_warnings(manifest_path, root, data):
     manifest_rel = _relative(manifest_path, root)
     warnings = []
@@ -47,42 +60,45 @@ def _manifest_asset_warnings(manifest_path, root, data):
     for type_name, variant in variants.items():
         if not isinstance(variant, dict):
             continue
-        uri = variant.get("uri")
-        if not isinstance(uri, str) or not uri.strip():
-            warnings.append(_warning(
-                "INVALID_GEOMETRY_URI",
-                manifest_rel,
-                typeName=str(type_name),
-                uri=uri,
-            ))
+        warning = _check_uri(
+            manifest_path,
+            root,
+            manifest_rel,
+            variant.get("uri"),
+            kind="GEOMETRY",
+            label=type_name,
+        )
+        if warning:
+            warning["typeName"] = str(type_name)
+            warnings.append(warning)
+
+    lods = data.get("geometryLods", {}) if isinstance(data.get("geometryLods"), dict) else {}
+    for level, record in lods.items():
+        if not isinstance(record, dict):
             continue
-        resolved = _resolve_uri(manifest_path, root, uri)
-        if resolved is None:
-            warnings.append(_warning(
-                "UNSAFE_GEOMETRY_URI",
-                manifest_rel,
-                typeName=str(type_name),
-                uri=uri,
-            ))
-        elif not resolved.is_file():
-            warnings.append(_warning(
-                "MISSING_GEOMETRY_FILE",
-                manifest_rel,
-                typeName=str(type_name),
-                uri=uri,
-            ))
+        warning = _check_uri(
+            manifest_path,
+            root,
+            manifest_rel,
+            record.get("uri"),
+            kind="LOD",
+            label=level,
+        )
+        if warning:
+            warning["lodLevel"] = str(level)
+            warnings.append(warning)
 
     thumbnail = data.get("thumbnail")
     if isinstance(thumbnail, dict) and "uri" in thumbnail:
-        uri = thumbnail.get("uri")
-        if not isinstance(uri, str) or not uri.strip():
-            warnings.append(_warning("INVALID_THUMBNAIL_URI", manifest_rel, uri=uri))
-        else:
-            resolved = _resolve_uri(manifest_path, root, uri)
-            if resolved is None:
-                warnings.append(_warning("UNSAFE_THUMBNAIL_URI", manifest_rel, uri=uri))
-            elif not resolved.is_file():
-                warnings.append(_warning("MISSING_THUMBNAIL_FILE", manifest_rel, uri=uri))
+        warning = _check_uri(
+            manifest_path,
+            root,
+            manifest_rel,
+            thumbnail.get("uri"),
+            kind="THUMBNAIL",
+        )
+        if warning:
+            warnings.append(warning)
 
     return warnings
 
@@ -138,11 +154,11 @@ def audit_library(root_directory):
     warning_counts = Counter(item["code"] for item in warnings)
     missing_file_count = sum(
         count for code, count in warning_counts.items()
-        if code in {"MISSING_GEOMETRY_FILE", "MISSING_THUMBNAIL_FILE"}
+        if code in {"MISSING_GEOMETRY_FILE", "MISSING_LOD_FILE", "MISSING_THUMBNAIL_FILE"}
     )
     unsafe_uri_count = sum(
         count for code, count in warning_counts.items()
-        if code in {"UNSAFE_GEOMETRY_URI", "UNSAFE_THUMBNAIL_URI"}
+        if code in {"UNSAFE_GEOMETRY_URI", "UNSAFE_LOD_URI", "UNSAFE_THUMBNAIL_URI"}
     )
 
     payload = {
