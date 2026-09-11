@@ -11,6 +11,7 @@ No thumbnail or render operation is used.
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import sys
@@ -53,6 +54,9 @@ def assert_true(value, message):
 
 def main():
     addon = load_addon()
+    typed = importlib.import_module(f"{ADDON_NAME}.typed")
+    library_audit = importlib.import_module(f"{ADDON_NAME}.library_audit")
+    catalog_module = importlib.import_module(f"{ADDON_NAME}.catalog")
     addon.register()
     try:
         clean_scene()
@@ -62,7 +66,7 @@ def main():
         source_polygons = len(source.data.polygons)
         source_mesh = source.data
 
-        root = addon.typed.create_typed_family(
+        root = typed.create_typed_family(
             bpy.context,
             [source],
             "Runtime LOD Smoke",
@@ -75,7 +79,7 @@ def main():
 
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "library" / "generic" / "runtime-lod-smoke"
-            manifest_path, glb_path = addon.typed.export_typed_family(
+            manifest_path, glb_path = typed.export_typed_family(
                 root,
                 output,
                 export_glb=True,
@@ -102,9 +106,9 @@ def main():
             assert_true(data.get("mobileBudget", {}).get("status") == "OVER_TARGET", "Unexpected mobile budget status")
 
             library_root = Path(tmp) / "library"
-            audit = addon.library_audit.audit_library(library_root)
+            audit = library_audit.audit_library(library_root)
             assert_true(audit.get("complete") is True, f"Library audit failed: {audit.get('warnings')}")
-            _catalog_path, catalog = addon.catalog.build_library_index(library_root)
+            _catalog_path, catalog = catalog_module.build_library_index(library_root)
             assert_true(catalog.get("missingAssetCount") == 0, "Catalog reports missing LOD assets")
             assert_true(catalog.get("familiesWithLods") == 1, "Catalog did not index LOD family")
 
