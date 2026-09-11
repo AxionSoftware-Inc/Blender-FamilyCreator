@@ -9,18 +9,12 @@ from .mobile_budget import evaluate_mobile_budget
 def _mesh_cost(obj, depsgraph):
     evaluated = None
     mesh = None
-    temporary = False
     try:
         evaluated = obj.evaluated_get(depsgraph)
-        data = getattr(evaluated, "data", None)
-        if getattr(evaluated, "type", None) == "MESH" and data is not None:
-            mesh = data
-        else:
-            try:
-                mesh = evaluated.to_mesh()
-                temporary = mesh is not None
-            except Exception:
-                mesh = None
+        try:
+            mesh = evaluated.to_mesh()
+        except Exception:
+            mesh = None
 
         if mesh is None:
             return {"vertices": 0, "triangles": 0, "materialSlots": 0}
@@ -40,7 +34,7 @@ def _mesh_cost(obj, depsgraph):
             "materialSlots": int(material_slots),
         }
     finally:
-        if temporary and evaluated is not None:
+        if mesh is not None and evaluated is not None:
             try:
                 evaluated.to_mesh_clear()
             except Exception:
