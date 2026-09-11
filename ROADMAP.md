@@ -4,135 +4,108 @@
 
 Convert large numbers of existing Blender/FBX/OBJ/GLB assets into reusable BIM families with as little manual cleanup as possible.
 
-The project optimizes for **library throughput + trustworthy automatic conversion**, not for reproducing every Revit Family Editor feature.
+The project optimizes for **library throughput + trustworthy automatic conversion**, not for reproducing every Revit Family Editor feature. Ambiguous assets should be routed to review rather than silently accepted as broken BIM families.
 
-A difficult or ambiguous asset should be routed to review rather than silently exported as a broken family.
-
-## Current validated baseline — v0.5
+## Validated foundation — v0.5
 
 Status: **implemented and Blender 5.2 runtime validated** on deterministic synthetic assets.
 
-The reusable runtime harness is under `tests/blender_runtime/` and the detailed baseline is recorded in `BLENDER_5_2_TEST_REPORT.md`.
+The reusable runtime harness is under `tests/blender_runtime/`; the detailed baseline is recorded in `BLENDER_5_2_TEST_REPORT.md`.
 
-Current capabilities include:
+Validated foundation includes:
 
-- typed Family Classes instead of one universal scaler;
-- semantic member-role classification;
-- per-class MOVE / STRETCH / FIXED rules;
-- CENTER / MIN / MAX family-axis anchors;
+- exact Family Classes and semantic roles;
+- class-specific MOVE / STRETCH / FIXED rules;
+- CENTER / MIN / MAX axis anchors;
 - immutable canonical transforms;
-- class-specific semantic parameters;
-- procedural/semantic generators for the main registered classes;
-- Family Types / parameter snapshots;
-- baked GLB geometry variants per saved Type;
-- Door / Window wall hosting, opening and plan metadata;
-- plumbing semantics;
-- evaluated/modifier-aware bounding boxes;
-- hierarchy preservation for Empty/Armature helper parents;
-- conservative Auto Prepare / loose-parts splitting;
+- semantic parameters and class generators;
+- saved Family Types;
+- baked GLB variants;
+- Door/Window host/plan metadata;
+- evaluated/modifier-aware bounds;
+- hierarchy preservation;
+- conservative Auto Prepare;
 - semantic Quality Gate + source Preflight;
-- thumbnail generation;
-- runtime selection/collision/plan proxy metadata;
-- material/PBR metadata;
-- schema v2 validation;
+- thumbnails;
+- runtime selection/collision proxy;
+- material metadata;
+- schema v2;
 - collision-safe Family IDs;
-- exact-class Batch Factory;
-- mixed AUTO_FOLDER conversion with no silent Generic fallback;
-- `batch-report.json`;
-- `review-queue.json`;
-- cross-class `library-index.json`;
-- transactional cleanup after export failures;
-- Blender 5.2 registration, GLB round-trip, variants, thumbnails, batch and cleanup runtime tests.
+- exact and AUTO_FOLDER batch conversion;
+- review queue + cross-class library index;
+- transactional cleanup.
 
-The deterministic Blender 5.2 baseline passed all registered Family Classes at the time of validation. This does **not** yet prove behavior across arbitrary downloaded/vendor topology and importer quirks.
+The original Blender 5.2 validation covered registration, GLB round-trip, variants, thumbnails, batch processing, cleanup and all registered Family Classes.
 
 ---
 
-## Current milestone — v0.6 Real Asset Hardening
+## v0.6 — Real Asset Hardening
 
-Status: **in progress**.
+Status: **active and substantially improved**.
 
-Purpose: measure and fix the highest-frequency problems found in real downloaded/vendor assets before adding another large feature layer.
+Real BlenderKit mini-corpus history is stored in `docs/hardening/`. The golden seven-asset corpus reached:
 
-See `docs/REAL_ASSET_HARDENING.md`.
+- 7/7 conversion success;
+- 3/7 automaticReady;
+- BED and WINDOW semantic coverage substantially improved without lowering global thresholds;
+- baked Window validity separated from separate-frame edit capability;
+- non-uniform scale and mixed furniture sets remain conservative review conditions.
 
-### Tooling
+Hardening tooling now includes:
 
-- `tests/blender_runtime/run_real_assets.py`
-- `hardening.py`
-- `hardening-report.json`
-
-The hardening report aggregates:
-
-- conversion success rate;
-- automatic acceptance rate;
-- results by Family Class;
-- results by source format;
-- average quality score;
-- average semantic-role coverage;
+- `tests/blender_runtime/run_real_assets.py`;
+- `hardening.py` / `hardening-report.json`;
+- golden-overlap vs expanded-corpus comparison;
+- duplicate corpus-key detection;
 - normalized review/failure reasons;
-- example source files for repeated failure patterns.
+- unknown-member geometry samples;
+- semantic capability reporting.
 
-### Initial corpus target
+Next hardening work is **corpus expansion**, not more tuning of the same seven assets:
 
-Build a mixed local corpus containing representative:
+- additional BED/WINDOW from different vendors;
+- broader SOFA/TABLE/CHAIR/CASEWORK/PLUMBING/STAIR samples;
+- genuine BLEND / FBX / OBJ / GLB/GLTF sources;
+- repeated-pattern fixes only after evidence from multiple new assets.
 
-- Sofa / Table / Chair / Bed;
-- Door / Window;
-- Cabinet / Wardrobe / Shelf / Kitchen;
-- Stair;
-- Toilet / Sink / Bathtub;
-- BLEND / FBX / OBJ / GLB/GLTF sources;
-- multiple vendor/source styles.
-
-The source models should remain local unless their licenses permit redistribution.
-
-### Hardening priorities
-
-1. importer/runtime crashes and partial exports;
-2. wrong units, roots, transforms or hierarchy;
-3. missing required semantic roles;
-4. generator geometry failures;
-5. repeated UNKNOWN-role patterns;
-6. excessive false-positive review flags;
-7. vendor-specific material/hierarchy quirks;
-8. cosmetic issues.
-
-### Target gates
-
-Engineering targets for supported, reasonably prepared assets:
-
-- >= 95% conversion success;
-- >= 80% automatic acceptance in core classes;
-- no recurring batch cleanup leak;
-- no partial package after failed export;
-- every automaticReady manifest passes schema validation;
-- library-index URIs resolve correctly;
-- FBX, OBJ, GLB and BLEND each exercised with real assets.
-
-These are targets for the hardening corpus, not claims about current unknown third-party assets.
+Engineering target remains >=95% conversion success and >=80% automatic acceptance for reasonably prepared core-class assets, while preserving a no-regression golden corpus.
 
 ---
 
-## v0.7 — Mobile LOD and Geometry Budgets
+## v0.7 — Mobile Cost, LOD and Library Integrity
 
-Start after the real-asset pipeline is stable enough that geometry optimization is not hiding classifier/import bugs.
+Status: **implementation complete enough for Blender runtime validation; opt-in until that validation passes**.
 
-Planned:
+Implemented on `main`:
 
-- LOD0 / LOD1 / LOD2 strategy;
-- per-class polygon budgets;
-- optional automatic mesh simplification;
-- preserve silhouette / openings / thin hardware where possible;
+- evaluated triangulated `runtimeCost` metadata;
+- per-class mobile triangle/material budgets;
+- `WITHIN_TARGET` / `OVER_TARGET` / `OVER_HARD_LIMIT` diagnostics;
+- suggested LOD1 / LOD2 ratios;
+- non-destructive temporary LOD copies;
+- Blender Decimate-based LOD1/LOD2 GLB derivatives;
+- conservative protection for small hardware/connectors and shape-key/low-poly members;
+- LOD target/meetsTarget metadata;
+- LOD schema validation and transactional cleanup;
+- catalog indexing of LOD files;
+- missing/unsafe asset detection;
+- `library-audit.json`;
+- standalone library audit CLI;
+- production headless `batch_cli.py`;
+- GPU-safe LOD smoke test (no thumbnail/render path).
+
+LOD remains **disabled by default** in Blender UI and batch settings until the local Blender 5.2 runtime smoke/regression pass is green.
+
+Still planned after validation/data:
+
 - texture resolution budgets;
 - material consolidation diagnostics;
-- library metadata for triangle/vertex/texture cost;
-- selection/collision proxy refinement;
-- optional meshopt / glTF compression path;
-- mobile-oriented validation thresholds;
-- batch report fields for runtime cost.
+- silhouette-aware or class-aware simplification beyond generic Decimate;
+- optional glTF mesh compression / meshopt path;
+- better device/distance LOD switching policy;
+- optional dedicated collision meshes.
 
-The high-quality source family remains the authoring truth; LOD output is a runtime derivative.
+The high-quality source family remains the authoring truth; every LOD is a runtime derivative.
 
 ---
 
@@ -140,69 +113,61 @@ The high-quality source family remains the authoring truth; LOD output is a runt
 
 Planned:
 
-- native Axion family importer;
+- native family manifest importer;
 - `library-index.json` ingestion;
 - thumbnail/search/category browser;
 - baked Type switching;
+- LOD selection based on distance/device budget;
 - runtime material replacement;
-- hosted Door/Window insertion into walls;
-- opening cuts;
+- hosted Door/Window insertion and host cuts;
 - plan representation;
 - runtime proxy selection/culling;
-- placement/facing/hand-flip semantics;
-- package migration when schema versions evolve.
+- facing/hand-flip semantics;
+- schema migration support.
 
-Progressively enable true runtime-parametric generation only for classes where it is simpler/safer than switching baked geometry.
+Progressively enable true runtime-parametric generation only where it is safer/smaller than switching baked geometry.
 
 ---
 
 ## v0.9 — Advanced Parametric Deformation
 
-The original "Smart Stretch Zones" concept remains useful, but it is intentionally deferred until real-asset data shows where object-level rules are insufficient.
+Deferred until expanded real-asset data proves object-level rules are insufficient.
 
-Potential work:
+Possible work:
 
 - vertex/zone-level deformation;
 - fixed end zones + stretch middle zones;
 - reference planes;
 - deformation weights;
-- Geometry Nodes/Lattice based deformation where appropriate;
-- hardware-preserving deformation for single connected meshes;
-- formula parameters;
-- min/max constraints;
+- Geometry Nodes/Lattice support;
+- hardware-preserving deformation for monolithic meshes;
+- formulas and min/max constraints;
 - nested families.
 
-Examples:
-
-- a single connected door-frame mesh whose corners must remain rigid while rails stretch;
-- a monolithic cabinet whose handle/profile thickness must stay constant;
-- a one-piece sofa whose arms remain fixed while only the center region grows.
-
-This should be driven by measured hardening failures, not implemented universally in advance.
+This must be driven by measured failure patterns rather than implemented universally.
 
 ---
 
 ## Later library-production work
 
-Possible later milestones:
-
-- automatic type generation from dimension ranges;
+- automatic Type generation from dimension ranges;
 - manufacturer/model metadata;
-- tags and search synonyms;
+- tags/search synonyms;
 - bulk material normalization;
 - source-license/attribution metadata;
 - validation contact sheets;
-- optional human approval states;
+- approval states;
 - large library migrations;
-- CLI/headless farm processing;
-- content deduplication / near-duplicate detection.
+- content deduplication / near-duplicate detection;
+- distributed/headless farm orchestration on top of the existing CLI.
 
 ## Design principles
 
 1. **Exact Family Class first.** Sofa, Door, Stair and Sink do not share one deformation contract.
-2. **Measure before generalizing.** Real corpus failure frequency decides what gets fixed first.
-3. **Never silently guess dangerous semantics.** Review is preferable to a plausible-looking broken BIM family.
+2. **Measure before generalizing.** Real-corpus failure frequency decides what gets fixed first.
+3. **Never silently guess dangerous semantics.** Review is preferable to plausible-looking broken BIM data.
 4. **Canonical source state must not drift.** Rebuilds and Type switching must remain idempotent.
-5. **Batch work must be transactional and leak-resistant.** Hundreds of assets should not pollute the Blender process.
-6. **Mobile runtime cost is a derivative concern.** First make the family semantically correct, then optimize LOD/runtime geometry.
-7. **Keep Blender-specific generation out of the mobile engine when baked variants are sufficient.** Implement runtime-parametric behavior only where it clearly pays off.
+5. **Batch work must be transactional and leak-resistant.** Hundreds of assets should not pollute Blender state.
+6. **Semantic validity and mobile runtime cost are separate concerns.** A good family can still need LOD optimization.
+7. **LOD is derivative.** Source authoring geometry is never destructively simplified.
+8. **Keep Blender-only generation out of the mobile engine when baked geometry is sufficient.**
