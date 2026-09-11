@@ -7,6 +7,7 @@ blender --background --factory-startup --python batch_cli.py -- \
   --output D:\\family-library \
   --class AUTO_FOLDER \
   --recursive \
+  --lods \
   --no-thumbnails
 """
 
@@ -44,6 +45,7 @@ def parse_args():
     parser.add_argument("--no-glb", action="store_true", help="Skip GLB export")
     parser.add_argument("--no-baked-types", action="store_true", help="Skip saved Type variants")
     parser.add_argument("--no-thumbnails", "--no-thumbnail", action="store_true", help="Skip preview rendering")
+    parser.add_argument("--lods", action="store_true", help="Generate non-destructive mobile LOD1/LOD2 derivatives")
     parser.add_argument("--no-auto-split", action="store_true", help="Disable conservative loose-part splitting")
     parser.add_argument("--max-loose-islands", type=int, default=32)
     parser.add_argument("--stop-on-error", action="store_true", help="Abort after the first failed asset")
@@ -74,12 +76,20 @@ def _summary(report):
         "automaticReady": int(report.get("ready", 0) or 0),
         "needsReview": int(report.get("needs_review", 0) or 0),
         "thumbnailWarnings": int(report.get("thumbnail_warnings", 0) or 0),
+        "lodWarnings": int(report.get("lod_warnings", 0) or 0),
+        "mobileBudgetStatusCounts": report.get("mobile_budget_status_counts", {}),
         "resolvedClassCounts": report.get("resolved_class_counts", {}),
         "batchReport": report.get("report_path"),
         "reviewQueue": report.get("review_queue_path"),
         "libraryIndex": report.get("library_index_path"),
         "libraryFamilyCount": report.get("library_family_count"),
+        "libraryMissingAssetCount": report.get("library_missing_asset_count"),
+        "libraryAssetWarningCount": report.get("library_asset_warning_count"),
         "libraryIndexError": report.get("library_index_error"),
+        "libraryAudit": report.get("library_audit_path"),
+        "libraryAuditComplete": report.get("library_audit_complete"),
+        "libraryAuditWarningCount": report.get("library_audit_warning_count"),
+        "libraryAuditError": report.get("library_audit_error"),
         "aborted": bool(report.get("aborted", False)),
     }
 
@@ -105,6 +115,7 @@ def main():
             export_glb=not args.no_glb,
             export_baked_types=not args.no_baked_types,
             export_thumbnail=not args.no_thumbnails,
+            export_lods=bool(args.lods) and not args.no_glb,
             continue_on_error=not args.stop_on_error,
             auto_split_loose=not args.no_auto_split,
             max_loose_islands=max(2, int(args.max_loose_islands)),
@@ -119,8 +130,13 @@ def main():
         print(f"Failed: {summary['failed']}")
         print(f"Automatic ready: {summary['automaticReady']}")
         print(f"Needs review: {summary['needsReview']}")
+        print(f"LOD warnings: {summary['lodWarnings']}")
+        print(f"Mobile budgets: {summary['mobileBudgetStatusCounts']}")
         print(f"Library families: {summary['libraryFamilyCount']}")
+        print(f"Library missing assets: {summary['libraryMissingAssetCount']}")
+        print(f"Library audit complete: {summary['libraryAuditComplete']}")
         print(f"Batch report: {summary['batchReport']}")
+        print(f"Library audit: {summary['libraryAudit']}")
 
         if args.json_summary:
             summary_path = Path(args.json_summary).expanduser().resolve()
