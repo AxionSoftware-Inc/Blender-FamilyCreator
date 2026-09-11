@@ -9,6 +9,7 @@ from .catalog import build_library_index
 from .core import SUPPORTED_TYPES
 from .family_path import resolve_family_class_from_path
 from .generators import rebuild_family_geometry, supports_generation
+from .library_audit import write_library_audit
 from .prepare import DEFAULT_MAX_LOOSE_ISLANDS, auto_prepare_objects
 from .quality import validate_family
 from .typed import create_typed_family, export_typed_family
@@ -214,6 +215,7 @@ def convert_asset(
     export_glb=True,
     export_baked_types=True,
     export_thumbnail=True,
+    export_lods=False,
     output_key=None,
     auto_split_loose=True,
     max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
@@ -261,6 +263,7 @@ def convert_asset(
             export_glb=export_glb,
             export_baked_types=export_baked_types and export_glb,
             export_thumbnail=export_thumbnail,
+            export_lods=export_lods and export_glb,
         )
         manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
         return {
@@ -275,6 +278,10 @@ def convert_asset(
             "thumbnail": manifest_data.get("thumbnail"),
             "export_warnings": list(manifest_data.get("exportWarnings", [])),
             "baked_types": bool(export_baked_types and export_glb),
+            "lods_enabled": bool(export_lods and export_glb),
+            "geometry_lods": manifest_data.get("geometryLods"),
+            "runtime_cost": manifest_data.get("runtimeCost"),
+            "mobile_budget": manifest_data.get("mobileBudget"),
             "generator": generator_result,
             "quality_before": quality_before,
             "quality": quality_after,
@@ -308,6 +315,9 @@ def _review_queue_payload(report):
             "glb": item.get("glb"),
             "thumbnail": item.get("thumbnail"),
             "export_warnings": item.get("export_warnings", []),
+            "geometry_lods": item.get("geometry_lods"),
+            "runtime_cost": item.get("runtime_cost"),
+            "mobile_budget": item.get("mobile_budget"),
             "score": quality.get("score"),
             "automaticReady": quality.get("automaticReady"),
             "roleCoverage": quality.get("roleCoverage"),
@@ -333,9 +343,23 @@ def _review_queue_payload(report):
 def _finalize_report(output_directory, report):
     report["ready"] = sum(1 for item in report.get("results", []) if not item.get("needs_review"))
     report["needs_review"] = sum(1 for item in report.get("results", []) if item.get("needs_review"))
+    all_export_warnings = [
+        warning
+        for item in report.get("results", [])
+        for warning in item.get("export_warnings", [])
+    ]
     report["thumbnail_warnings"] = sum(
-        1 for item in report.get("results", []) if item.get("export_warnings")
+        1 for warning in all_export_warnings if str(warning).lower().startswith("thumbnail")
     )
+    report["lod_warnings"] = sum(
+        1 for warning in all_export_warnings if str(warning).lower().startswith("lod:")
+    )
+    report["mobile_budget_status_counts"] = dict(sorted(Counter(
+        (item.get("mobile_budget") or {}).get("status")
+        for item in report.get("results", [])
+        if (item.get("mobile_budget") or {}).get("status")
+    ).items()))
+
     class_items = list(report.get("results", [])) + list(report.get("errors", []))
     report["resolved_class_counts"] = dict(sorted(Counter(
         item.get("family_kind")
@@ -351,11 +375,27 @@ def _finalize_report(output_directory, report):
         catalog_path, catalog = build_library_index(output_directory)
         report["library_index_path"] = str(catalog_path)
         report["library_family_count"] = int(catalog.get("familyCount", 0))
+        report["library_missing_asset_count"] = int(catalog.get("missingAssetCount", 0))
+        report["library_asset_warning_count"] = int(catalog.get("assetWarningCount", 0))
         report["library_index_error"] = None
     except Exception as exc:
         report["library_index_path"] = None
         report["library_family_count"] = None
+        report["library_missing_asset_count"] = None
+        report["library_asset_warning_count"] = None
         report["library_index_error"] = str(exc)
+
+    try:
+        audit_path, audit = write_library_audit(output_directory)
+        report["library_audit_path"] = str(audit_path)
+        report["library_audit_complete"] = bool(audit.get("complete", False))
+        report["library_audit_warning_count"] = int(audit.get("warningCount", 0))
+        report["library_audit_error"] = None
+    except Exception as exc:
+        report["library_audit_path"] = None
+        report["library_audit_complete"] = None
+        report["library_audit_warning_count"] = None
+        report["library_audit_error"] = str(exc)
 
     report_path = _write_json(output_directory, "batch-report.json", report)
     report["report_path"] = str(report_path)
@@ -372,6 +412,7 @@ def batch_convert_directory(
     export_glb=True,
     export_baked_types=True,
     export_thumbnail=True,
+    export_lods=False,
     continue_on_error=True,
     auto_split_loose=True,
     max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
@@ -397,6 +438,7 @@ def batch_convert_directory(
                     export_glb=export_glb,
                     export_baked_types=export_baked_types,
                     export_thumbnail=export_thumbnail,
+                    export_lods=export_lods,
                     output_key=output_keys[filepath],
                     auto_split_loose=auto_split_loose,
                     max_loose_islands=max_loose_islands,
@@ -423,6 +465,7 @@ def batch_convert_directory(
                     "export_glb": bool(export_glb),
                     "export_baked_types": bool(export_baked_types and export_glb),
                     "export_thumbnail": bool(export_thumbnail),
+                    "export_lods": bool(export_lods and export_glb),
                     "auto_split_loose": auto_split_loose,
                     "max_loose_islands": max_loose_islands,
                     "results": results,
@@ -442,6 +485,7 @@ def batch_convert_directory(
         "export_glb": bool(export_glb),
         "export_baked_types": bool(export_baked_types and export_glb),
         "export_thumbnail": bool(export_thumbnail),
+        "export_lods": bool(export_lods and export_glb),
         "auto_split_loose": auto_split_loose,
         "max_loose_islands": max_loose_islands,
         "results": results,
