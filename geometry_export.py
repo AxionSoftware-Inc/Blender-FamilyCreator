@@ -5,13 +5,13 @@ import bpy
 from . import core
 
 
-def export_glb_geometry(root, filepath):
+def export_glb_objects(objects, filepath):
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    members = core.exportable_family_members(root)
+    members = [obj for obj in objects if obj is not None]
     if not members:
-        raise ValueError("Family has no exportable members")
+        raise ValueError("No exportable objects")
 
     previous_selection = list(bpy.context.selected_objects)
     previous_active = bpy.context.view_layer.objects.active
@@ -58,3 +58,10 @@ def export_glb_geometry(root, filepath):
             bpy.context.view_layer.objects.active = previous_active
 
     return filepath
+
+
+def export_glb_geometry(root, filepath):
+    members = core.exportable_family_members(root)
+    if not members:
+        raise ValueError("Family has no exportable members")
+    return export_glb_objects(members, filepath)
