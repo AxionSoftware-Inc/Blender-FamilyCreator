@@ -54,6 +54,29 @@ class LibraryAuditTests(unittest.TestCase):
             self.assertEqual(result["warningCounts"]["MISSING_THUMBNAIL_FILE"], 1)
             self.assertFalse(result["families"][0]["assetsComplete"])
 
+    def test_lod_files_are_audited(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "window" / "test"
+            (package / "variants").mkdir(parents=True)
+            (package / "lod").mkdir(parents=True)
+            manifest = _manifest()
+            manifest["geometryLods"] = {
+                "LOD0": {"uri": "family.glb", "generated": False, "triangles": 1000},
+                "LOD1": {"uri": "lod/lod1.glb", "generated": True, "triangles": 500},
+                "LOD2": {"uri": "lod/missing.glb", "generated": True, "triangles": 100},
+            }
+            (package / "family.glb").write_bytes(b"glb")
+            (package / "variants" / "wide.glb").write_bytes(b"glb-wide")
+            (package / "preview.png").write_bytes(b"png")
+            (package / "lod" / "lod1.glb").write_bytes(b"lod1")
+            (package / "test.family.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = audit_library(root)
+            self.assertEqual(result["warningCounts"]["MISSING_LOD_FILE"], 1)
+            self.assertEqual(result["missingAssetCount"], 1)
+            self.assertFalse(result["complete"])
+
     def test_path_traversal_and_duplicate_ids_are_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -66,13 +89,17 @@ class LibraryAuditTests(unittest.TestCase):
             manifest["geometryVariants"] = {
                 "Default": {"uri": "../../outside.glb", "baked": True, "primary": True},
             }
+            manifest["geometryLods"] = {
+                "LOD0": {"uri": "../../outside-lod.glb", "generated": False, "triangles": 1},
+            }
             (first / "a.family.json").write_text(json.dumps(manifest), encoding="utf-8")
             (second / "b.family.json").write_text(json.dumps(_manifest("axion:window:duplicate")), encoding="utf-8")
 
             result = audit_library(root)
             self.assertEqual(result["warningCounts"]["DUPLICATE_FAMILY_ID"], 1)
             self.assertEqual(result["warningCounts"]["UNSAFE_GEOMETRY_URI"], 1)
-            self.assertGreaterEqual(result["unsafeUriCount"], 1)
+            self.assertEqual(result["warningCounts"]["UNSAFE_LOD_URI"], 1)
+            self.assertGreaterEqual(result["unsafeUriCount"], 2)
 
 
 if __name__ == "__main__":
