@@ -50,6 +50,19 @@ def _asset_warning(code, asset_type, uri, **extra):
     return warning
 
 
+def _resolve_asset(path, root, uri, warnings, asset_type, **extra):
+    if not isinstance(uri, str) or not uri.strip():
+        warnings.append(_asset_warning("INVALID_URI", asset_type, uri, **extra))
+        return None
+    resolved, resolved_path = _resolved_path(path, root, uri)
+    if resolved is None:
+        warnings.append(_asset_warning("UNSAFE_URI", asset_type, uri, **extra))
+        return None
+    if not resolved_path.is_file():
+        warnings.append(_asset_warning("MISSING_FILE", asset_type, uri, **extra))
+    return resolved
+
+
 def _entry_from_manifest(path, root, data):
     quality = data.get("quality", {}) if isinstance(data.get("quality"), dict) else {}
     profile = data.get("familyProfile", {}) if isinstance(data.get("familyProfile"), dict) else {}
@@ -61,17 +74,39 @@ def _entry_from_manifest(path, root, data):
     for type_name, variant in variants.items():
         if not isinstance(type_name, str) or not isinstance(variant, dict):
             continue
-        uri = variant.get("uri")
-        if not isinstance(uri, str) or not uri.strip():
-            warnings.append(_asset_warning("INVALID_URI", "geometryVariant", uri, typeName=type_name))
+        resolved = _resolve_asset(
+            path,
+            root,
+            variant.get("uri"),
+            warnings,
+            "geometryVariant",
+            typeName=type_name,
+        )
+        if resolved is not None:
+            resolved_variants[type_name] = resolved
+
+    resolved_lods = {}
+    lods = data.get("geometryLods", {}) if isinstance(data.get("geometryLods"), dict) else {}
+    for level, record in lods.items():
+        if not isinstance(level, str) or not isinstance(record, dict):
             continue
-        resolved, resolved_path = _resolved_path(path, root, uri)
+        resolved = _resolve_asset(
+            path,
+            root,
+            record.get("uri"),
+            warnings,
+            "lod",
+            lodLevel=level,
+        )
         if resolved is None:
-            warnings.append(_asset_warning("UNSAFE_URI", "geometryVariant", uri, typeName=type_name))
             continue
-        resolved_variants[type_name] = resolved
-        if not resolved_path.is_file():
-            warnings.append(_asset_warning("MISSING_FILE", "geometryVariant", uri, typeName=type_name))
+        resolved_lods[level] = {
+            "uri": resolved,
+            "generated": bool(record.get("generated", False)),
+            "triangles": int(record.get("triangles", 0) or 0),
+        }
+        if record.get("aliasOf"):
+            resolved_lods[level]["aliasOf"] = record.get("aliasOf")
 
     entry = {
         "familyId": data["familyId"],
@@ -88,6 +123,8 @@ def _entry_from_manifest(path, root, data):
         "materialCount": len(materials),
         "geometryVariants": resolved_variants,
     }
+    if resolved_lods:
+        entry["geometryLods"] = resolved_lods
 
     runtime_proxy = data.get("runtimeProxy")
     if isinstance(runtime_proxy, dict):
@@ -124,17 +161,9 @@ def _entry_from_manifest(path, root, data):
 
     thumbnail = data.get("thumbnail")
     if isinstance(thumbnail, dict) and "uri" in thumbnail:
-        uri = thumbnail.get("uri")
-        if not isinstance(uri, str) or not uri.strip():
-            warnings.append(_asset_warning("INVALID_URI", "thumbnail", uri))
-        else:
-            resolved, resolved_path = _resolved_path(path, root, uri)
-            if resolved is None:
-                warnings.append(_asset_warning("UNSAFE_URI", "thumbnail", uri))
-            else:
-                entry["thumbnail"] = resolved
-                if not resolved_path.is_file():
-                    warnings.append(_asset_warning("MISSING_FILE", "thumbnail", uri))
+        resolved = _resolve_asset(path, root, thumbnail.get("uri"), warnings, "thumbnail")
+        if resolved is not None:
+            entry["thumbnail"] = resolved
 
     source = data.get("source")
     if isinstance(source, dict) and source.get("key"):
@@ -186,6 +215,7 @@ def build_library_index(root_directory):
         for item in entries
         if (item.get("mobileBudget") or {}).get("status")
     )
+    lod_family_count = sum(1 for item in entries if item.get("geometryLods"))
 
     payload = {
         "schema": CATALOG_SCHEMA,
@@ -197,6 +227,7 @@ def build_library_index(root_directory):
         "assetWarningCount": len(asset_warnings),
         "missingAssetCount": missing_asset_count,
         "familiesWithAssetWarnings": sum(1 for item in entries if item.get("assetWarnings")),
+        "familiesWithLods": lod_family_count,
         "mobileBudgetStatusCounts": dict(sorted(mobile_status_counts.items())),
         "families": entries,
         "rejectedManifests": rejected,
