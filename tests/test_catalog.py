@@ -107,6 +107,33 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(payload["assetWarningCount"], 0)
             self.assertTrue(payload["families"][0]["assetsComplete"])
 
+    def test_indexes_lod_uris_and_missing_lod_assets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "window" / "A"
+            (package / "variants").mkdir(parents=True)
+            (package / "lod").mkdir(parents=True)
+            manifest = _manifest("axion:window:a", "A", "WINDOW")
+            manifest["geometryLods"] = {
+                "LOD0": {"uri": "a.glb", "generated": False, "triangles": 2000},
+                "LOD1": {"uri": "lod/lod1.glb", "generated": True, "triangles": 1000},
+                "LOD2": {"uri": "lod/lod2.glb", "generated": True, "triangles": 300},
+            }
+            (package / "a.family.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (package / "a.glb").write_bytes(b"glb")
+            (package / "variants" / "wide.glb").write_bytes(b"glb")
+            (package / "a.thumbnail.png").write_bytes(b"png")
+            (package / "lod" / "lod1.glb").write_bytes(b"lod1")
+
+            _path, payload = build_library_index(root)
+            self.assertEqual(payload["familiesWithLods"], 1)
+            family = payload["families"][0]
+            self.assertEqual(family["geometryLods"]["LOD0"]["uri"], "window/A/a.glb")
+            self.assertEqual(family["geometryLods"]["LOD1"]["uri"], "window/A/lod/lod1.glb")
+            self.assertEqual(family["geometryLods"]["LOD2"]["uri"], "window/A/lod/lod2.glb")
+            self.assertEqual(payload["missingAssetCount"], 1)
+            self.assertFalse(family["assetsComplete"])
+
     def test_rejects_duplicate_family_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
