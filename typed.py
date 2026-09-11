@@ -13,6 +13,7 @@ from .family_types.strategies import (
 from .generators import rebuild_family_geometry, supports_generation
 from .hierarchy import create_family_preserving_hierarchy
 from .hosting import hosting_metadata
+from .lod import export_family_lods
 from .materials import family_material_metadata
 from .quality import validate_family
 from .runtime_cost import family_runtime_cost
@@ -324,6 +325,7 @@ def export_typed_family(
     export_glb=True,
     export_baked_types=False,
     export_thumbnail=False,
+    export_lods=False,
     thumbnail_size=DEFAULT_THUMBNAIL_SIZE,
 ):
     manifest_path, glb_path = core.export_family(root, directory, export_glb)
@@ -332,6 +334,7 @@ def export_typed_family(
     _inject_member_roles(root, data)
 
     variant_files = []
+    lod_files = []
     thumbnail_path = None
     try:
         if glb_path is not None:
@@ -348,6 +351,33 @@ def export_typed_family(
                 "activeType": str(root.bfc_type_name),
                 "variantCount": len(data["geometryVariants"]),
             }
+
+            if export_lods:
+                primary = data["geometryVariants"].get(str(root.bfc_type_name), {})
+                primary_uri = primary.get("uri", Path(glb_path).name)
+                lod_result = export_family_lods(
+                    root,
+                    directory,
+                    primary_uri=primary_uri,
+                    enabled=True,
+                )
+                lod_files = list(lod_result.get("createdFiles", ()))
+                data["geometryLods"] = lod_result["lods"]
+                data["lodStrategy"] = {
+                    "mode": "NON_DESTRUCTIVE_DECIMATE",
+                    "source": "LOD0",
+                    "levelCount": len(lod_result["lods"]),
+                    "protectedRoles": sorted({
+                        item.get("role")
+                        for level in lod_result["lods"].values()
+                        for item in level.get("protectedOrSkippedMembers", [])
+                        if item.get("role")
+                    }),
+                }
+                data["runtimeCost"] = lod_result["runtimeCost"]
+                data["mobileBudget"] = lod_result["mobileBudget"]
+                for warning in lod_result.get("warnings", ()):
+                    data.setdefault("exportWarnings", []).append(f"LOD: {warning}")
 
         if export_thumbnail:
             thumbnail_path = _thumbnail_path(directory, root)
@@ -370,7 +400,7 @@ def export_typed_family(
         assert_valid_manifest(data)
         manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception:
-        extras = list(variant_files)
+        extras = list(variant_files) + list(lod_files)
         if thumbnail_path is not None:
             extras.append(thumbnail_path)
         _remove_partial_export(manifest_path, glb_path, extras)
