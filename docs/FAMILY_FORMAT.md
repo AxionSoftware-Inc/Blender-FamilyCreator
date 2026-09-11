@@ -1,20 +1,31 @@
 # Axion Family Package — Schema v2
 
-Blender Family Creator v0.4 exports a baked glTF/GLB representation plus a versioned BIM manifest for Axion's mobile BIM engine.
+Blender Family Creator exports a baked glTF/GLB representation plus a versioned BIM manifest for Axion's mobile BIM runtime. Schema v2 is intentionally extensible: newer optional fields such as runtime proxies, baked Type variants, thumbnails, mobile budgets and LODs do not invalidate older v2 packages that omit them.
 
-## Package
+## Package layout
+
+A full package can contain:
 
 ```text
 family_name.family.json
 family_name.glb
+family_name.thumbnail.png
+variants/
+  wide.glb
+  tall.glb
+lod/
+  lod1.glb
+  lod2.glb
 ```
 
 - `.family.json` is the semantic/runtime contract.
-- `.glb` is the currently evaluated exportable geometry.
-- procedural source templates are retained in Blender authoring state but excluded from GLB.
-- generated instances are included in GLB.
+- the primary `.glb` is the currently evaluated active Type.
+- `variants/` contains optional baked saved-Type geometry.
+- `lod/` contains optional non-destructive mobile derivatives.
+- the thumbnail is optional and a render failure never invalidates an otherwise valid family.
+- procedural source templates remain in Blender authoring state but are excluded from exported runtime geometry.
 
-Before a package is finalized the addon validates the manifest against the schema-v2 invariants implemented in `schema.py`. Invalid partial `.family.json/.glb` output is removed.
+Before finalization the addon validates the manifest with `schema.py`. If a later schema/write error occurs, newly created primary/variant/LOD/thumbnail artifacts belonging to that transaction are cleaned up.
 
 ## Identity and compatibility
 
@@ -28,17 +39,13 @@ Before a package is finalized the addon validates the manifest against the schem
 }
 ```
 
-`familyId` is the stable runtime/library identity. Batch conversion derives it from Family Class plus source-relative path, avoiding collisions between same-named assets in different folders.
-
-The importer must reject unknown `schemaVersion` values or route them through an explicit migration layer.
+`familyId` is the stable runtime/library identity. Batch conversion derives it from exact Family Class plus source-relative path. Runtime importers should reject unknown schema versions or pass them through an explicit migration layer.
 
 ## Units and coordinate systems
 
 ```json
 {
-  "units": {
-    "length": "meter"
-  },
+  "units": {"length": "meter"},
   "coordinateSystems": {
     "family": "RIGHT_HANDED_Z_UP",
     "geometry": "GLTF_RIGHT_HANDED_Y_UP"
@@ -46,22 +53,14 @@ The importer must reject unknown `schemaVersion` values or route them through an
 }
 ```
 
-Family semantic axes use Blender-style right-handed Z-up coordinates. Exported GLB uses the standard glTF right-handed Y-up convention because `export_yup` is enabled. Runtime code must not silently mix the two spaces.
+Family semantics use Blender-style right-handed Z-up coordinates. GLB geometry is exported with glTF Y-up conversion enabled.
 
-## Dimensions and Types
+## Dimensions and saved Types
 
 ```json
 {
-  "baseDimensions": {
-    "width": 2.1,
-    "depth": 0.9,
-    "height": 0.82
-  },
-  "dimensions": {
-    "width": 2.1,
-    "depth": 0.9,
-    "height": 0.82
-  },
+  "baseDimensions": {"width": 2.1, "depth": 0.9, "height": 0.82},
+  "dimensions": {"width": 2.1, "depth": 0.9, "height": 0.82},
   "activeType": "3-seat",
   "types": {
     "3-seat": {
@@ -78,11 +77,11 @@ Family semantic axes use Blender-style right-handed Z-up coordinates. Exported G
 }
 ```
 
-All dimensions are positive meters. A Family Type is a named snapshot of overall dimensions plus semantic parameters.
+All dimensions are positive meters. A saved Family Type is a named snapshot of overall dimensions plus class semantic parameters.
 
 ## Family Classes
 
-Current schema-v2 authoring classes:
+Current authoring classes:
 
 ```text
 GENERIC
@@ -103,11 +102,11 @@ SINK
 BATHTUB
 ```
 
-Different `familyKind` values are separate behavior contracts even where they share low-level transform primitives.
+Each class is a separate semantic behavior contract even when classes share low-level geometry primitives.
 
-## Semantic parameters
+## Semantic parameters and members
 
-Examples:
+Examples of stable class keys:
 
 ```text
 SOFA          seat_height, arm_width, seat_count
@@ -127,11 +126,7 @@ SINK          drain_diameter
 BATHTUB       rim_thickness
 ```
 
-These IDs are stable semantic keys. Runtime code should never derive behavior by parsing the UI label.
-
-## Member semantics
-
-Each exportable member contains its class role plus axis behavior:
+Each exportable member has a semantic role and axis rules:
 
 ```json
 {
@@ -139,24 +134,15 @@ Each exportable member contains its class role plus axis behavior:
   "type": "MESH",
   "role": "LEG",
   "generated": false,
-  "generatorGroup": "",
-  "rules": {
-    "x": "MOVE",
-    "y": "MOVE",
-    "z": "STRETCH"
-  }
+  "rules": {"x": "MOVE", "y": "MOVE", "z": "STRETCH"}
 }
 ```
 
-Supported rules:
+Rules are `STRETCH`, `MOVE`, or `FIXED`. A member produced by family-level semantic refinement may additionally contain a diagnostic `roleRefinement` string such as `BED_MATTRESS_CANDIDATE`.
 
-- `STRETCH`: resize on that family axis and follow the class anchor.
-- `MOVE`: retain part size while following the changing boundary.
-- `FIXED`: do not react to that axis.
+## Family profile and axis anchors
 
-Typical roles include `SEAT`, `ARM_LEFT`, `TOP`, `LEG`, `FRAME_LEFT`, `GLASS`, `SHELF`, `TREAD`, `RISER`, `BASIN`, `DRAIN`, `BOWL` and `CONNECTOR`.
-
-## Class profile and anchors
+`familyProfile` publishes class metadata used by runtime/library UIs:
 
 ```json
 {
@@ -167,115 +153,205 @@ Typical roles include `SEAT`, `ARM_LEFT`, `TOP`, `LEG`, `FRAME_LEFT`, `GLASS`, `
     "strategy": "SOFA",
     "logicModule": "family_types.sofa",
     "editableAxes": ["X"],
-    "axisParameters": {
-      "X": "width",
-      "Y": "depth",
-      "Z": "height"
-    },
-    "axisAnchors": {
-      "X": "CENTER",
-      "Y": "CENTER",
-      "Z": "MIN"
-    },
+    "axisParameters": {"X": "width", "Y": "depth", "Z": "height"},
+    "axisAnchors": {"X": "CENTER", "Y": "CENTER", "Z": "MIN"},
     "parameters": ["width", "depth", "height", "seat_height", "arm_width", "seat_count"],
-    "roleCounts": {
-      "SEAT": 3,
-      "ARM_LEFT": 1,
-      "ARM_RIGHT": 1
-    }
+    "roleCounts": {"SEAT": 3, "ARM_LEFT": 1, "ARM_RIGHT": 1}
   }
 }
 ```
 
-Draft anchor values are `CENTER`, `MIN`, and `MAX`. A Door with Z=`MIN`, for example, remains on its threshold/floor plane while height changes.
+Anchor values are `CENTER`, `MIN`, and `MAX`.
 
-## Templates and generated members
+## Baked Type geometry
 
-Procedural repetition is nondestructive. Original source modules become hidden authoring templates, while generated copies carry a generator group.
+When GLB export is enabled, the active Type is always represented as a baked geometry variant. With “Bake All Saved Types” enabled, every saved Type can receive a GLB:
 
 ```json
 {
-  "templates": [
-    {
-      "name": "Seat_Source",
-      "role": "SEAT",
-      "generatorGroup": "SOFA_SEATS"
-    }
-  ],
-  "generator": {
-    "supported": true,
-    "revision": 4
+  "geometryVariants": {
+    "Default": {"uri": "family.glb", "baked": true, "primary": true},
+    "Wide": {"uri": "variants/wide.glb", "baked": true, "primary": false}
+  },
+  "geometryStrategy": {
+    "mode": "BAKED_TYPE_VARIANTS",
+    "activeType": "Default",
+    "variantCount": 2
   }
 }
 ```
 
-Template object subtrees are duplicated with linked mesh data where possible, preserving child details/materials without duplicating the mesh payload in Blender memory.
+`geometryStrategy.mode` is `BAKED_ACTIVE_TYPE` for one variant or `BAKED_TYPE_VARIANTS` for multiple variants. The primary variant must match `activeType`.
 
-`generator.revision` is an authoring rebuild counter, not a schema compatibility version.
+## Runtime selection/collision proxy
+
+`runtimeProxy` supplies cheap hit-testing/coarse collision metadata without reading every GLB triangle:
+
+```json
+{
+  "runtimeProxy": {
+    "coordinateSystem": "RIGHT_HANDED_Z_UP",
+    "selection": {
+      "shape": "AABB",
+      "min": [-0.6, -0.4, 0.0],
+      "max": [0.6, 0.4, 0.75],
+      "center": [0.0, 0.0, 0.375],
+      "size": [1.2, 0.8, 0.75]
+    },
+    "collision": {
+      "shape": "AABB",
+      "coarse": true,
+      "center": [0.0, 0.0, 0.375],
+      "size": [1.2, 0.8, 0.75]
+    },
+    "planFootprint": {
+      "shape": "RECTANGLE",
+      "min": [-0.6, -0.4],
+      "max": [0.6, 0.4],
+      "baseZ": 0.0
+    },
+    "typeBounds": {}
+  }
+}
+```
+
+The collision proxy is deliberately coarse; it is not a physics-quality collision mesh.
+
+## Runtime geometry cost and mobile budget
+
+Every new export measures the active evaluated family geometry after Blender modifiers:
+
+```json
+{
+  "runtimeCost": {
+    "measurement": "EVALUATED_TRIANGULATED_GEOMETRY",
+    "memberCount": 6,
+    "meshObjects": 6,
+    "nonMeshObjects": 0,
+    "vertices": 125000,
+    "triangles": 240000,
+    "materialSlots": 8,
+    "members": []
+  }
+}
+```
+
+`mobileBudget` is a runtime optimization diagnostic, not a semantic validity gate:
+
+```json
+{
+  "mobileBudget": {
+    "policyVersion": 1,
+    "familyKind": "BED",
+    "status": "OVER_TARGET",
+    "sourceTriangles": 240000,
+    "sourceMaterialSlots": 8,
+    "budget": {
+      "lod0TargetTriangles": 250000,
+      "lod0HardTriangles": 700000,
+      "lod1TargetTriangles": 90000,
+      "lod2TargetTriangles": 18000,
+      "targetMaterialSlots": 12
+    },
+    "suggestedLod1Ratio": 0.375,
+    "suggestedLod2Ratio": 0.075,
+    "warnings": []
+  }
+}
+```
+
+Status values:
+
+- `WITHIN_TARGET`
+- `OVER_TARGET`
+- `OVER_HARD_LIMIT`
+
+A semantically valid family can remain `automaticReady=true` while its mobile budget says optimization is desirable.
+
+## Mobile LOD derivatives
+
+LOD generation is opt-in until runtime validation is complete. It never edits source family geometry: temporary copies receive Decimate modifiers, are exported, and are removed.
+
+```json
+{
+  "geometryLods": {
+    "LOD0": {
+      "uri": "family.glb",
+      "generated": false,
+      "triangles": 240000,
+      "targetTriangles": 250000,
+      "meetsTarget": true,
+      "ratio": 1.0
+    },
+    "LOD1": {
+      "uri": "lod/lod1.glb",
+      "generated": true,
+      "triangles": 88000,
+      "targetTriangles": 90000,
+      "meetsTarget": true,
+      "requestedRatio": 0.375,
+      "protectedOrSkippedMembers": []
+    },
+    "LOD2": {
+      "uri": "lod/lod2.glb",
+      "generated": true,
+      "triangles": 17500,
+      "targetTriangles": 18000,
+      "meetsTarget": true,
+      "requestedRatio": 0.075,
+      "protectedOrSkippedMembers": []
+    }
+  },
+  "lodStrategy": {
+    "mode": "NON_DESTRUCTIVE_DECIMATE",
+    "source": "LOD0",
+    "levelCount": 3,
+    "protectedRoles": ["HARDWARE"]
+  }
+}
+```
+
+When source geometry is already below a level target, that level can alias `LOD0` instead of writing a duplicate file. Small meshes, shape-key meshes, and semantic hardware/connectors are treated conservatively; a derivative can remain above its target and emit a non-fatal export warning.
+
+## Thumbnail
+
+```json
+{
+  "thumbnail": {
+    "uri": "family.thumbnail.png",
+    "width": 512,
+    "height": 512,
+    "format": "PNG",
+    "transparent": true
+  }
+}
+```
+
+Thumbnail rendering uses temporary camera/lights/world state and restores the authoring scene. Thumbnail failure is recorded in `exportWarnings` and does not fail the family package.
 
 ## Hosted Door / Window semantics
 
-Hosted opening families add a `hosting` record:
+Hosted opening families add `hosting` metadata with wall opening size, insertion point, facing/up axes, flip capabilities and plan representation. Door can publish hinge-side/swing metadata; Window publishes sill elevation.
+
+Window validity is separate from frame-edit capability. A baked vendor Window can be valid without distinct frame meshes. Quality may expose semantic capability flags such as:
 
 ```json
 {
-  "hosting": {
-    "hostType": "WALL",
-    "cutHost": true,
-    "opening": {
-      "shape": "RECTANGLE",
-      "width": 0.9,
-      "height": 2.1,
-      "depth": 0.15
-    },
-    "insertionPoint": "THRESHOLD_CENTER",
-    "placementOriginLocal": [0.0, 0.0, -1.05],
-    "elevationFromLevel": 0.0,
-    "facingDirection": [0.0, 1.0, 0.0],
-    "upDirection": [0.0, 0.0, 1.0],
-    "canFlipFacing": true,
-    "canFlipHand": true,
-    "planRepresentation": {
-      "type": "DOOR_SWING",
-      "openingWidth": 0.9,
-      "leafLength": 0.9,
-      "hingeSide": "LEFT",
-      "swingAngleDegrees": 90.0,
-      "swingDirection": "UNKNOWN"
+  "quality": {
+    "semanticCapabilities": {
+      "separateFrame": false,
+      "separateGlass": true,
+      "parametricFrameWidth": false,
+      "materialAddressableGlass": true,
+      "bakedSashOrPanel": true
     }
   }
 }
 ```
 
-Window uses `SILL_CENTER`, exports `elevationFromLevel` from `sill_height`, and uses a `WINDOW_OPENING` plan representation.
-
-Door hinge side is inferred from `HINGE` role location, with handle location as fallback. Swing direction remains `UNKNOWN` when it cannot be inferred safely.
-
 ## Materials
 
-GLB remains the source of geometry, textures and actual render material payloads. JSON adds stable material identification and lightweight PBR metadata for runtime search/replacement:
-
-```json
-{
-  "materials": [
-    {
-      "id": "oak",
-      "name": "Oak",
-      "pbr": {
-        "baseColorFactor": [0.5, 0.3, 0.15, 1.0],
-        "metallicFactor": 0.0,
-        "roughnessFactor": 0.55,
-        "alphaFactor": 1.0
-      },
-      "usages": [
-        {"member": "TableTop", "slot": 0}
-      ]
-    }
-  ]
-}
-```
-
-Material IDs are slugged and collision-safe within one family.
+GLB is the source of actual geometry/textures/render materials. JSON adds stable material IDs, lightweight PBR factors and member-slot usage metadata for runtime search/replacement.
 
 ## Quality and preflight
 
@@ -291,69 +367,60 @@ Material IDs are slugged and collision-safe within one family.
     "missingRecommendedRoleGroups": [],
     "preflight": {
       "reviewRecommended": true,
-      "stats": {
-        "meshPolygons": 620000,
-        "nonUniformScaleMembers": 0
-      },
+      "stats": {"meshPolygons": 620000, "nonUniformScaleMembers": 0},
       "warnings": ["Heavy source geometry: 620,000 polygons"],
       "severe": []
     },
-    "warnings": ["Heavy source geometry: 620,000 polygons"],
+    "warnings": [],
     "errors": []
   }
 }
 ```
 
 - `ready`: required semantic class roles are present.
-- `automaticReady`: family can enter the library without manual review.
-- `reviewRecommended`: conversion succeeded, but semantics/preflight recommend inspection.
+- `automaticReady`: package can enter the semantic library without manual review.
+- `reviewRecommended`: conversion succeeded, but source/semantic checks recommend inspection.
 
-Preflight currently checks source polygon count, canonical scale, non-uniform scale, mirrored transforms, shape keys, armatures and suspicious class dimensions/unit scale.
+Runtime mobile budget is intentionally separate from these semantic decisions.
+
+## Export warnings
+
+Derivative failures and optional-output failures are non-fatal when the primary family package remains valid:
+
+```json
+{
+  "exportWarnings": [
+    "Thumbnail render failed: ...",
+    "LOD: LOD2 has 24000 triangles; target is 18000"
+  ]
+}
+```
 
 ## Source traceability
 
-Batch-generated packages can include:
+Batch packages can include local production traceability:
 
 ```json
 {
   "source": {
-    "asset": "/source/vendor_a/sofa_01.glb",
+    "asset": "C:/assets/vendor_a/sofa_01.glb",
     "key": "vendor_a/sofa_01"
   }
 }
 ```
 
-This is library-production metadata and is not required for runtime rendering.
-
-## Advanced custom parameters
-
-`customParameters` remains available for author-defined numeric values and Blender driver bindings outside the stable class contract. Mobile/runtime implementations should prefer `semanticParameters` for known class behavior.
+This is not required for runtime rendering.
 
 ## Runtime adoption path
 
-Recommended mobile-engine rollout:
+Recommended mobile-engine order:
 
-1. ingest baked GLB + schema-v2 JSON;
-2. index by `familyId`, `familyKind`, Types and materials;
-3. implement Wall-host placement/cutting for Door/Window;
-4. support direct width/height/depth editing for simple classes;
-5. port selected semantic generators such as Sofa seat count and straight Stair generation;
-6. leave complex/unsupported deformation baked until a matching runtime generator exists.
+1. ingest manifest + LOD0 GLB;
+2. index by `familyId`, class, Types, capabilities and mobile cost;
+3. use `runtimeProxy` for selection/coarse collision;
+4. choose `geometryLods` based on screen size/distance/device budget;
+5. implement Wall-host placement/cutting for Door/Window;
+6. support simple dimension edits and selected runtime semantic generators;
+7. keep complex unsupported deformation baked.
 
-## Future schema candidates
-
-Potential later-version fields include:
-
-- `categoryId`
-- `manufacturer`
-- `modelNumber`
-- richer connector definitions
-- LODs
-- collision meshes
-- thumbnails
-- constraints/formulas
-- nested families
-- source licensing/attribution
-- richer material parameters and texture references
-
-Adding incompatible semantics requires a new schema version or an explicit backward-compatible extension rule.
+Incompatible contract changes require a new schema version or an explicitly backward-compatible v2 extension.
