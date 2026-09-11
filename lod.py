@@ -51,10 +51,15 @@ def _evaluated_triangles(obj, depsgraph):
 
 
 def _duplicate_for_lod(obj, ratio, level):
+    world_matrix = obj.matrix_world.copy()
     duplicate = obj.copy()
     duplicate.name = f"__BFC_{level}_{obj.name}"
     duplicate.parent = None
-    duplicate.matrix_world = obj.matrix_world.copy()
+    try:
+        duplicate.constraints.clear()
+    except Exception:
+        pass
+    duplicate.matrix_world = world_matrix
     try:
         duplicate.animation_data_clear()
     except Exception:
