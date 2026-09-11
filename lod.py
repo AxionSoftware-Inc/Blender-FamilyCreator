@@ -12,7 +12,6 @@ import bpy
 
 from . import core
 from .geometry_export import export_glb_objects
-from .mobile_budget import evaluate_mobile_budget
 from .runtime_cost import family_runtime_cost
 
 
@@ -31,17 +30,11 @@ PROTECTED_ROLES = {
 def _evaluated_triangles(obj, depsgraph):
     evaluated = obj.evaluated_get(depsgraph)
     mesh = None
-    temporary = False
     try:
-        data = getattr(evaluated, "data", None)
-        if getattr(evaluated, "type", None) == "MESH" and data is not None:
-            mesh = data
-        else:
-            try:
-                mesh = evaluated.to_mesh()
-                temporary = mesh is not None
-            except Exception:
-                mesh = None
+        try:
+            mesh = evaluated.to_mesh()
+        except Exception:
+            mesh = None
         if mesh is None:
             return 0
         try:
@@ -50,7 +43,7 @@ def _evaluated_triangles(obj, depsgraph):
         except Exception:
             return sum(max(len(poly.vertices) - 2, 1) for poly in getattr(mesh, "polygons", ()))
     finally:
-        if temporary:
+        if mesh is not None:
             try:
                 evaluated.to_mesh_clear()
             except Exception:
@@ -158,11 +151,16 @@ def export_family_lods(root, directory, primary_uri="family.glb", enabled=True):
     keep the valid LOD0 family package.
     """
     runtime_cost, mobile_budget = family_runtime_cost(root)
+    budget = mobile_budget.get("budget", {})
+    source_triangles = int(runtime_cost.get("triangles", 0) or 0)
+    lod0_target = int(budget.get("lod0TargetTriangles", source_triangles) or source_triangles)
     lods = {
         "LOD0": {
             "uri": str(primary_uri),
             "generated": False,
-            "triangles": int(runtime_cost.get("triangles", 0) or 0),
+            "triangles": source_triangles,
+            "targetTriangles": lod0_target,
+            "meetsTarget": source_triangles <= lod0_target,
             "ratio": 1.0,
         }
     }
@@ -178,16 +176,26 @@ def export_family_lods(root, directory, primary_uri="family.glb", enabled=True):
         return result
 
     levels = (
-        ("LOD1", float(mobile_budget.get("suggestedLod1Ratio", 1.0))),
-        ("LOD2", float(mobile_budget.get("suggestedLod2Ratio", 1.0))),
+        (
+            "LOD1",
+            float(mobile_budget.get("suggestedLod1Ratio", 1.0)),
+            int(budget.get("lod1TargetTriangles", source_triangles) or source_triangles),
+        ),
+        (
+            "LOD2",
+            float(mobile_budget.get("suggestedLod2Ratio", 1.0)),
+            int(budget.get("lod2TargetTriangles", source_triangles) or source_triangles),
+        ),
     )
-    for level, ratio in levels:
+    for level, ratio, target_triangles in levels:
         if ratio >= 0.98:
             lods[level] = {
                 "uri": str(primary_uri),
                 "generated": False,
                 "aliasOf": "LOD0",
-                "triangles": int(runtime_cost.get("triangles", 0) or 0),
+                "triangles": source_triangles,
+                "targetTriangles": target_triangles,
+                "meetsTarget": source_triangles <= target_triangles,
                 "ratio": 1.0,
             }
             continue
@@ -195,13 +203,20 @@ def export_family_lods(root, directory, primary_uri="family.glb", enabled=True):
         try:
             filepath, triangles, skipped = _export_level(root, directory, level, ratio)
             result["createdFiles"].append(filepath)
+            meets_target = int(triangles) <= int(target_triangles)
             lods[level] = {
                 "uri": filepath.relative_to(Path(directory)).as_posix(),
                 "generated": True,
                 "triangles": int(triangles),
+                "targetTriangles": int(target_triangles),
+                "meetsTarget": meets_target,
                 "requestedRatio": ratio,
                 "protectedOrSkippedMembers": skipped,
             }
+            if not meets_target:
+                result["warnings"].append(
+                    f"{level} has {int(triangles):,} triangles; target is {int(target_triangles):,}"
+                )
         except Exception as exc:
             result["warnings"].append(f"{level} generation failed: {exc}")
 
