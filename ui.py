@@ -55,6 +55,9 @@ def _draw_batch_factory(layout, scene):
     baked_row = batch.row()
     baked_row.enabled = scene.bfc_batch_export_glb
     baked_row.prop(scene, "bfc_batch_export_baked_types")
+    lod_row = batch.row()
+    lod_row.enabled = scene.bfc_batch_export_glb
+    lod_row.prop(scene, "bfc_batch_export_lods")
     batch.prop(scene, "bfc_batch_export_thumbnail")
     batch.prop(scene, "bfc_batch_auto_split_loose")
     if scene.bfc_batch_auto_split_loose:
@@ -62,8 +65,10 @@ def _draw_batch_factory(layout, scene):
     batch.prop(scene, "bfc_batch_continue_on_error")
     batch.operator("bfc.batch_convert", icon="EXPORT")
     batch.label(text="Supports .blend, .fbx, .glb, .gltf and .obj")
-    batch.label(text="Batch output also rebuilds library-index.json.")
-    batch.label(text="Thumbnail failures are warnings, not family failures.")
+    batch.label(text="Output includes library-index.json + library-audit.json.")
+    if scene.bfc_batch_export_lods:
+        batch.label(text="LOD1/LOD2 are temporary Decimate derivatives; source assets stay unchanged.")
+    batch.label(text="Thumbnail/LOD derivative failures are recorded as warnings.")
     if scene.bfc_batch_last_result:
         batch.label(text=scene.bfc_batch_last_result, icon="INFO")
 
@@ -294,10 +299,15 @@ class BFC_PT_main(Panel):
         baked_row = export_box.row()
         baked_row.enabled = scene.bfc_export_glb
         baked_row.prop(scene, "bfc_export_baked_types")
+        lod_row = export_box.row()
+        lod_row.enabled = scene.bfc_export_glb
+        lod_row.prop(scene, "bfc_export_lods")
         export_box.prop(scene, "bfc_export_thumbnail")
         saved_count = len(read_types(root))
         if scene.bfc_export_glb and scene.bfc_export_baked_types:
             export_box.label(text=f"Will bake {saved_count} saved Family Type geometry variant(s).")
+        if scene.bfc_export_glb and scene.bfc_export_lods:
+            export_box.label(text="LOD1/LOD2: mobile-budget derivatives; source geometry remains unchanged.")
         if scene.bfc_export_thumbnail:
             export_box.label(text="Thumbnail: transparent 512 × 512 PNG (non-fatal).")
         export_box.operator("bfc.export_family", icon="EXPORT")
