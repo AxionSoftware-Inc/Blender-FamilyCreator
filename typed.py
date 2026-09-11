@@ -15,6 +15,7 @@ from .hierarchy import create_family_preserving_hierarchy
 from .hosting import hosting_metadata
 from .materials import family_material_metadata
 from .quality import validate_family
+from .runtime_cost import family_runtime_cost
 from .runtime_proxy import runtime_proxy_metadata
 from .schema import assert_valid_manifest
 from .thumbnail import DEFAULT_THUMBNAIL_SIZE, render_family_thumbnail
@@ -146,10 +147,6 @@ def capture_typed_family(root):
 
         member_infos = refine_member_roles(family_kind, member_infos, family_dims)
 
-        # Apply only the final/refined role set to Blender RNA properties. This
-        # keeps the first-pass classifier cheap while allowing family-level
-        # second-pass logic to resolve ambiguous vendor parts without triggering
-        # update callbacks halfway through semantic capture.
         for obj, info in zip(member_objects, member_infos):
             role = info.get("role", "UNKNOWN") or "UNKNOWN"
             spans = info.get("normalized_span", (0.0, 0.0, 0.0))
@@ -242,6 +239,7 @@ def typed_manifest_metadata(root):
         role = getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"
         role_counts[role] = role_counts.get(role, 0) + 1
 
+    runtime_cost, mobile_budget = family_runtime_cost(root)
     metadata = {
         "familyId": family_identifier(root, type_id),
         "familyKind": type_id,
@@ -253,6 +251,8 @@ def typed_manifest_metadata(root):
         "semanticParameters": semantic_parameter_values(root, type_id),
         "materials": family_material_metadata(root),
         "runtimeProxy": runtime_proxy_metadata(root),
+        "runtimeCost": runtime_cost,
+        "mobileBudget": mobile_budget,
         "quality": validate_family(root),
         "generator": {
             "supported": supports_generation(type_id),
