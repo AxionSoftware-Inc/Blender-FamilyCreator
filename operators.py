@@ -362,12 +362,15 @@ class BFC_OT_export_family(Operator):
                 scene.bfc_export_glb,
                 export_baked_types=scene.bfc_export_baked_types and scene.bfc_export_glb,
                 export_thumbnail=scene.bfc_export_thumbnail,
+                export_lods=scene.bfc_export_lods and scene.bfc_export_glb,
             )
         except Exception as exc:
             self.report({"ERROR"}, f"Export failed: {exc}")
             return {"CANCELLED"}
         saved_count = len(core.read_types(root)) if scene.bfc_export_baked_types and glb else 1
         suffix = f" + {saved_count} baked type geometry variant(s)" if glb else ""
+        if scene.bfc_export_lods and glb:
+            suffix += " + mobile LODs"
         if scene.bfc_export_thumbnail:
             suffix += " + thumbnail"
         self.report({"INFO"}, f"Exported {manifest.name}" + suffix)
@@ -399,6 +402,7 @@ class BFC_OT_batch_convert(Operator):
                 export_glb=scene.bfc_batch_export_glb,
                 export_baked_types=scene.bfc_batch_export_baked_types and scene.bfc_batch_export_glb,
                 export_thumbnail=scene.bfc_batch_export_thumbnail,
+                export_lods=scene.bfc_batch_export_lods and scene.bfc_batch_export_glb,
                 continue_on_error=scene.bfc_batch_continue_on_error,
                 auto_split_loose=scene.bfc_batch_auto_split_loose,
                 max_loose_islands=scene.bfc_prepare_max_islands,
@@ -408,14 +412,19 @@ class BFC_OT_batch_convert(Operator):
             self.report({"ERROR"}, scene.bfc_batch_last_result)
             return {"CANCELLED"}
 
-        thumbnail_suffix = ""
+        warning_parts = []
         if report.get("thumbnail_warnings"):
-            thumbnail_suffix = f" / {report['thumbnail_warnings']} thumbnail warning"
+            warning_parts.append(f"{report['thumbnail_warnings']} thumbnail warning")
+        if report.get("lod_warnings"):
+            warning_parts.append(f"{report['lod_warnings']} LOD warning")
+        if report.get("library_missing_asset_count"):
+            warning_parts.append(f"{report['library_missing_asset_count']} missing library asset")
+        warning_suffix = (" / " + " / ".join(warning_parts)) if warning_parts else ""
         scene.bfc_batch_last_result = (
             f"{report['ready']} ready / {report['needs_review']} review / "
-            f"{report['failed']} failed / {report['discovered']} discovered{thumbnail_suffix}"
+            f"{report['failed']} failed / {report['discovered']} discovered{warning_suffix}"
         )
-        message_type = {"WARNING"} if report["failed"] or report["needs_review"] else {"INFO"}
+        message_type = {"WARNING"} if report["failed"] or report["needs_review"] or warning_parts else {"INFO"}
         self.report(message_type, scene.bfc_batch_last_result)
         return {"FINISHED"}
 
