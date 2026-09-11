@@ -32,6 +32,17 @@ def _manifest(family_id, name, family_kind, automatic_ready=True):
             "height": 512,
             "format": "PNG",
         },
+        "runtimeCost": {
+            "memberCount": 3,
+            "vertices": 1000,
+            "triangles": 2000,
+            "materialSlots": 2,
+        },
+        "mobileBudget": {
+            "status": "WITHIN_TARGET",
+            "suggestedLod1Ratio": 1.0,
+            "suggestedLod2Ratio": 0.5,
+        },
     }
 
 
@@ -52,6 +63,7 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(payload["automaticReady"], 1)
             self.assertEqual(payload["needsReview"], 1)
             self.assertEqual(payload["classCounts"], {"SOFA": 1, "TABLE": 1})
+            self.assertEqual(payload["mobileBudgetStatusCounts"], {"WITHIN_TARGET": 2})
 
             first = payload["families"][0]
             self.assertEqual(first["familyId"], "axion:sofa:a")
@@ -59,6 +71,41 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(first["geometryVariants"]["Default"], "sofa/A/a.glb")
             self.assertEqual(first["geometryVariants"]["Wide"], "sofa/A/variants/wide.glb")
             self.assertEqual(first["thumbnail"], "sofa/A/a.thumbnail.png")
+            self.assertEqual(first["runtimeCost"]["triangles"], 2000)
+            self.assertEqual(first["mobileBudget"]["status"], "WITHIN_TARGET")
+
+    def test_reports_missing_assets_without_rejecting_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_path = root / "window" / "A" / "a.family.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(_manifest("axion:window:a", "A", "WINDOW")),
+                encoding="utf-8",
+            )
+
+            _path, payload = build_library_index(root)
+            self.assertEqual(payload["familyCount"], 1)
+            self.assertEqual(payload["missingAssetCount"], 3)
+            self.assertEqual(payload["familiesWithAssetWarnings"], 1)
+            self.assertFalse(payload["families"][0]["assetsComplete"])
+            self.assertEqual(len(payload["families"][0]["assetWarnings"]), 3)
+
+    def test_existing_assets_clear_integrity_warnings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "window" / "A"
+            (package / "variants").mkdir(parents=True)
+            manifest = _manifest("axion:window:a", "A", "WINDOW")
+            (package / "a.family.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (package / "a.glb").write_bytes(b"glb")
+            (package / "variants" / "wide.glb").write_bytes(b"glb")
+            (package / "a.thumbnail.png").write_bytes(b"png")
+
+            _path, payload = build_library_index(root)
+            self.assertEqual(payload["missingAssetCount"], 0)
+            self.assertEqual(payload["assetWarningCount"], 0)
+            self.assertTrue(payload["families"][0]["assetsComplete"])
 
     def test_rejects_duplicate_family_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
