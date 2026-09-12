@@ -121,6 +121,7 @@ def _export_level(root, directory, level, ratio):
     temporary_objects = []
     temporary_data = []
     skipped = []
+    filepath = Path(directory) / "lod" / f"{level.lower()}.glb"
     try:
         for obj in source_members:
             duplicate, copied_data, applied_ratio, skipped_reason = _duplicate_for_lod(obj, ratio, level)
@@ -136,7 +137,6 @@ def _export_level(root, directory, level, ratio):
                     "appliedRatio": applied_ratio,
                 })
 
-        filepath = Path(directory) / "lod" / f"{level.lower()}.glb"
         export_glb_objects(temporary_objects, filepath)
         if not filepath.exists() or filepath.stat().st_size <= 0:
             raise RuntimeError(f"{level} export did not create a GLB file")
@@ -144,6 +144,15 @@ def _export_level(root, directory, level, ratio):
         depsgraph = bpy.context.evaluated_depsgraph_get()
         triangles = sum(_evaluated_triangles(obj, depsgraph) for obj in temporary_objects)
         return filepath, triangles, skipped
+    except Exception:
+        # Derivative failures are non-fatal to the package, but a partially
+        # written file must never survive staging and get committed as an
+        # unreferenced/corrupt runtime asset.
+        try:
+            filepath.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
     finally:
         _remove_temporary(temporary_objects, temporary_data)
 
