@@ -161,6 +161,9 @@ def _entry_from_manifest(path, root, data):
 
     mobile_budget = data.get("mobileBudget")
     if isinstance(mobile_budget, dict):
+        reasons = mobile_budget.get("optimizationReasons", [])
+        if not isinstance(reasons, list):
+            reasons = []
         entry["mobileBudget"] = {
             "policyVersion": int(mobile_budget.get("policyVersion", 0) or 0),
             "status": mobile_budget.get("status"),
@@ -170,6 +173,14 @@ def _entry_from_manifest(path, root, data):
             "sourceTextureMemoryMiB": round(
                 float(mobile_budget.get("sourceTextureMemoryMiB", 0.0) or 0.0),
                 3,
+            ),
+            "optimizationReasons": [str(reason) for reason in reasons],
+            "geometryLodRecommended": bool(mobile_budget.get("geometryLodRecommended", False)),
+            "materialOptimizationRecommended": bool(
+                mobile_budget.get("materialOptimizationRecommended", False)
+            ),
+            "textureOptimizationRecommended": bool(
+                mobile_budget.get("textureOptimizationRecommended", False)
             ),
             "suggestedLod1Ratio": mobile_budget.get("suggestedLod1Ratio"),
             "suggestedLod2Ratio": mobile_budget.get("suggestedLod2Ratio"),
@@ -235,6 +246,24 @@ def build_library_index(root_directory):
         for item in entries
         if (item.get("mobileBudget") or {}).get("status")
     )
+    optimization_reason_counts = Counter(
+        reason
+        for item in entries
+        for reason in ((item.get("mobileBudget") or {}).get("optimizationReasons") or [])
+    )
+    lod_recommended_count = sum(
+        1 for item in entries if (item.get("mobileBudget") or {}).get("geometryLodRecommended")
+    )
+    material_optimization_count = sum(
+        1
+        for item in entries
+        if (item.get("mobileBudget") or {}).get("materialOptimizationRecommended")
+    )
+    texture_optimization_count = sum(
+        1
+        for item in entries
+        if (item.get("mobileBudget") or {}).get("textureOptimizationRecommended")
+    )
     lod_family_count = sum(1 for item in entries if item.get("geometryLods"))
 
     runtime_costs = [item.get("runtimeCost") for item in entries if isinstance(item.get("runtimeCost"), dict)]
@@ -261,6 +290,10 @@ def build_library_index(root_directory):
         "familiesWithAssetWarnings": sum(1 for item in entries if item.get("assetWarnings")),
         "familiesWithLods": lod_family_count,
         "mobileBudgetStatusCounts": dict(sorted(mobile_status_counts.items())),
+        "mobileOptimizationReasonCounts": dict(sorted(optimization_reason_counts.items())),
+        "familiesRecommendedForGeometryLod": lod_recommended_count,
+        "familiesRecommendedForMaterialOptimization": material_optimization_count,
+        "familiesRecommendedForTextureOptimization": texture_optimization_count,
         "familiesOverMobileTarget": int(mobile_status_counts.get("OVER_TARGET", 0)),
         "familiesOverMobileHardLimit": int(mobile_status_counts.get("OVER_HARD_LIMIT", 0)),
         "runtimeCostSummary": {
