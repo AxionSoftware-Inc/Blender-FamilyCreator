@@ -83,6 +83,14 @@ def _variant_filenames(type_names):
     return result
 
 
+def _remove_variant_files(paths):
+    for path in paths:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def export_baked_type_variants(
     root,
     directory,
@@ -115,6 +123,7 @@ def export_baked_type_variants(
     filenames = _variant_filenames(other_names)
     variants_dir = directory / "variants"
     pending_path = None
+    export_failure = None
 
     try:
         for type_name in other_names:
@@ -139,19 +148,28 @@ def export_baked_type_variants(
                 "primary": False,
                 "generatorChanged": bool(generator_result and generator_result.get("changed")),
             }
-    except Exception:
+    except Exception as exc:
+        export_failure = exc
         cleanup_paths = list(created_files)
         if pending_path is not None:
             cleanup_paths.append(pending_path)
-        for path in cleanup_paths:
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                pass
-        raise
-    finally:
+        _remove_variant_files(cleanup_paths)
+
+    restore_failure = None
+    try:
         apply_state(root, original, fallback_semantic=original["semanticParameters"])
         root["bfc_generator_revision"] = int(original["generatorRevision"])
+    except Exception as exc:
+        restore_failure = exc
+
+    if export_failure is not None and restore_failure is not None:
+        raise RuntimeError(
+            f"Type variant export failed ({export_failure}); restoring the original Family state also failed ({restore_failure})"
+        ) from export_failure
+    if restore_failure is not None:
+        raise RuntimeError(f"Could not restore the original Family state after variant export: {restore_failure}") from restore_failure
+    if export_failure is not None:
+        raise export_failure
 
     return {
         "variants": variants,
