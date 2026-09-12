@@ -40,6 +40,15 @@ CLASS_BUDGETS = {
 }
 
 
+OPTIMIZATION_REASONS = {
+    "TRIANGLES",
+    "MATERIAL_SLOTS",
+    "DRAW_CALLS",
+    "TEXTURE_DIMENSION",
+    "TEXTURE_MEMORY",
+}
+
+
 def budget_for(family_kind):
     budget = dict(DEFAULT_BUDGET)
     budget.update(CLASS_BUDGETS.get(str(family_kind or "GENERIC").upper(), {}))
@@ -63,21 +72,25 @@ def evaluate_mobile_budget(cost, family_kind):
     max_texture_dimension = max(int(cost.get("maxTextureDimension", 0) or 0), 0)
     texture_memory_mib = max(float(cost.get("estimatedTextureMemoryMiB", 0.0) or 0.0), 0.0)
 
+    optimization_reasons = []
+    if triangles > budget["lod0TargetTriangles"]:
+        optimization_reasons.append("TRIANGLES")
+    if material_slots > budget["targetMaterialSlots"]:
+        optimization_reasons.append("MATERIAL_SLOTS")
+    if draw_calls > budget["targetDrawCalls"]:
+        optimization_reasons.append("DRAW_CALLS")
+    if max_texture_dimension > budget["targetTextureDimension"]:
+        optimization_reasons.append("TEXTURE_DIMENSION")
+    if texture_memory_mib > budget["targetTextureMemoryMiB"]:
+        optimization_reasons.append("TEXTURE_MEMORY")
+
     hard_limit = (
         triangles > budget["lod0HardTriangles"]
         or max_texture_dimension > budget["hardTextureDimension"]
     )
-    over_target = (
-        triangles > budget["lod0TargetTriangles"]
-        or material_slots > budget["targetMaterialSlots"]
-        or draw_calls > budget["targetDrawCalls"]
-        or max_texture_dimension > budget["targetTextureDimension"]
-        or texture_memory_mib > budget["targetTextureMemoryMiB"]
-    )
-
     if hard_limit:
         status = "OVER_HARD_LIMIT"
-    elif over_target:
+    elif optimization_reasons:
         status = "OVER_TARGET"
     else:
         status = "WITHIN_TARGET"
@@ -113,6 +126,14 @@ def evaluate_mobile_budget(cost, family_kind):
             f"target is {budget['targetTextureMemoryMiB']} MiB"
         )
 
+    geometry_optimization = "TRIANGLES" in optimization_reasons
+    material_optimization = any(
+        reason in optimization_reasons for reason in ("MATERIAL_SLOTS", "DRAW_CALLS")
+    )
+    texture_optimization = any(
+        reason in optimization_reasons for reason in ("TEXTURE_DIMENSION", "TEXTURE_MEMORY")
+    )
+
     return {
         "policyVersion": 2,
         "familyKind": str(family_kind or "GENERIC").upper(),
@@ -123,6 +144,10 @@ def evaluate_mobile_budget(cost, family_kind):
         "sourceMaxTextureDimension": max_texture_dimension,
         "sourceTextureMemoryMiB": round(texture_memory_mib, 3),
         "budget": budget,
+        "optimizationReasons": optimization_reasons,
+        "geometryLodRecommended": geometry_optimization,
+        "materialOptimizationRecommended": material_optimization,
+        "textureOptimizationRecommended": texture_optimization,
         "suggestedLod1Ratio": recommended_decimate_ratio(triangles, budget["lod1TargetTriangles"]),
         "suggestedLod2Ratio": recommended_decimate_ratio(triangles, budget["lod2TargetTriangles"]),
         "warnings": warnings,
