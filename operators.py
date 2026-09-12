@@ -417,8 +417,16 @@ class BFC_OT_batch_convert(Operator):
             warning_parts.append(f"{report['thumbnail_warnings']} thumbnail warning")
         if report.get("lod_warnings"):
             warning_parts.append(f"{report['lod_warnings']} LOD warning")
+        if report.get("cleanup_warnings"):
+            warning_parts.append(f"{report['cleanup_warnings']} cleanup warning")
         if report.get("library_missing_asset_count"):
             warning_parts.append(f"{report['library_missing_asset_count']} missing library asset")
+        if report.get("stale_output_count"):
+            warning_parts.append(f"{report['stale_output_count']} stale package")
+        if report.get("failed_refresh_package_count"):
+            warning_parts.append(f"{report['failed_refresh_package_count']} failed-refresh old package")
+        if report.get("source_index_error"):
+            warning_parts.append("batch source-index error")
         warning_suffix = (" / " + " / ".join(warning_parts)) if warning_parts else ""
         scene.bfc_batch_last_result = (
             f"{report['ready']} ready / {report['needs_review']} review / "
