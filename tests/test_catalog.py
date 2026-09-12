@@ -37,9 +37,19 @@ def _manifest(family_id, name, family_kind, automatic_ready=True):
             "vertices": 1000,
             "triangles": 2000,
             "materialSlots": 2,
+            "uniqueMaterials": 2,
+            "drawCallEstimate": 3,
+            "textureCount": 2,
+            "maxTextureDimension": 2048,
+            "estimatedTextureMemoryMiB": 24.5,
         },
         "mobileBudget": {
+            "policyVersion": 2,
             "status": "WITHIN_TARGET",
+            "sourceTriangles": 2000,
+            "sourceDrawCallEstimate": 3,
+            "sourceMaxTextureDimension": 2048,
+            "sourceTextureMemoryMiB": 24.5,
             "suggestedLod1Ratio": 1.0,
             "suggestedLod2Ratio": 0.5,
         },
@@ -64,6 +74,18 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(payload["needsReview"], 1)
             self.assertEqual(payload["classCounts"], {"SOFA": 1, "TABLE": 1})
             self.assertEqual(payload["mobileBudgetStatusCounts"], {"WITHIN_TARGET": 2})
+            self.assertEqual(payload["familiesOverMobileTarget"], 0)
+            self.assertEqual(payload["familiesOverMobileHardLimit"], 0)
+
+            summary = payload["runtimeCostSummary"]
+            self.assertEqual(summary["measuredFamilies"], 2)
+            self.assertEqual(summary["totalTriangles"], 4000)
+            self.assertEqual(summary["maxFamilyTriangles"], 2000)
+            self.assertEqual(summary["totalDrawCallEstimate"], 6)
+            self.assertEqual(summary["maxFamilyDrawCallEstimate"], 3)
+            self.assertEqual(summary["totalEstimatedTextureMemoryMiB"], 49.0)
+            self.assertEqual(summary["maxFamilyEstimatedTextureMemoryMiB"], 24.5)
+            self.assertEqual(summary["maxTextureDimension"], 2048)
 
             first = payload["families"][0]
             self.assertEqual(first["familyId"], "axion:sofa:a")
@@ -72,7 +94,31 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(first["geometryVariants"]["Wide"], "sofa/A/variants/wide.glb")
             self.assertEqual(first["thumbnail"], "sofa/A/a.thumbnail.png")
             self.assertEqual(first["runtimeCost"]["triangles"], 2000)
+            self.assertEqual(first["runtimeCost"]["drawCallEstimate"], 3)
+            self.assertEqual(first["runtimeCost"]["textureCount"], 2)
+            self.assertEqual(first["runtimeCost"]["maxTextureDimension"], 2048)
+            self.assertEqual(first["runtimeCost"]["estimatedTextureMemoryMiB"], 24.5)
+            self.assertEqual(first["mobileBudget"]["policyVersion"], 2)
             self.assertEqual(first["mobileBudget"]["status"], "WITHIN_TARGET")
+            self.assertEqual(first["mobileBudget"]["sourceDrawCallEstimate"], 3)
+
+    def test_mobile_status_counts_include_runtime_optimization_pressure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for index, status in enumerate(("WITHIN_TARGET", "OVER_TARGET", "OVER_HARD_LIMIT"), start=1):
+                manifest = _manifest(f"axion:chair:{index}", f"Chair{index}", "CHAIR")
+                manifest["mobileBudget"]["status"] = status
+                path = root / str(index) / f"chair{index}.family.json"
+                path.parent.mkdir(parents=True)
+                path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            _path, payload = build_library_index(root)
+            self.assertEqual(
+                payload["mobileBudgetStatusCounts"],
+                {"OVER_HARD_LIMIT": 1, "OVER_TARGET": 1, "WITHIN_TARGET": 1},
+            )
+            self.assertEqual(payload["familiesOverMobileTarget"], 1)
+            self.assertEqual(payload["familiesOverMobileHardLimit"], 1)
 
     def test_reports_missing_assets_without_rejecting_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -115,9 +161,9 @@ class CatalogTests(unittest.TestCase):
             (package / "lod").mkdir(parents=True)
             manifest = _manifest("axion:window:a", "A", "WINDOW")
             manifest["geometryLods"] = {
-                "LOD0": {"uri": "a.glb", "generated": False, "triangles": 2000},
-                "LOD1": {"uri": "lod/lod1.glb", "generated": True, "triangles": 1000},
-                "LOD2": {"uri": "lod/lod2.glb", "generated": True, "triangles": 300},
+                "LOD0": {"uri": "a.glb", "generated": False, "triangles": 2000, "targetTriangles": 2000, "meetsTarget": True},
+                "LOD1": {"uri": "lod/lod1.glb", "generated": True, "triangles": 1000, "targetTriangles": 1200, "meetsTarget": True},
+                "LOD2": {"uri": "lod/lod2.glb", "generated": True, "triangles": 300, "targetTriangles": 250, "meetsTarget": False},
             }
             (package / "a.family.json").write_text(json.dumps(manifest), encoding="utf-8")
             (package / "a.glb").write_bytes(b"glb")
@@ -131,6 +177,8 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(family["geometryLods"]["LOD0"]["uri"], "window/A/a.glb")
             self.assertEqual(family["geometryLods"]["LOD1"]["uri"], "window/A/lod/lod1.glb")
             self.assertEqual(family["geometryLods"]["LOD2"]["uri"], "window/A/lod/lod2.glb")
+            self.assertEqual(family["geometryLods"]["LOD2"]["targetTriangles"], 250)
+            self.assertFalse(family["geometryLods"]["LOD2"]["meetsTarget"])
             self.assertEqual(payload["missingAssetCount"], 1)
             self.assertFalse(family["assetsComplete"])
 
