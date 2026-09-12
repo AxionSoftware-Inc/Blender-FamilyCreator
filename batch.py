@@ -6,6 +6,13 @@ import bpy
 
 from . import core
 from .batch_cleanup import cleanup_new_datablocks, snapshot_datablocks
+from .batch_source_index import (
+    SOURCE_INDEX_FILENAME,
+    build_source_index,
+    compare_source_indexes,
+    load_source_index,
+    write_source_index,
+)
 from .catalog import build_library_index
 from .core import SUPPORTED_TYPES
 from .family_path import resolve_family_class_from_path
@@ -150,8 +157,6 @@ def _remove_objects(objects):
         seen.add(obj)
         unique.append(obj)
 
-    # Leaves first. Removing a child before its parent avoids stale hierarchy
-    # references during long conversion sessions.
     unique.sort(key=lambda obj: len(obj.children_recursive))
     for obj in unique:
         if obj and obj.name in bpy.data.objects:
@@ -271,10 +276,6 @@ def convert_asset(
         }
         return result
     finally:
-        # Cleanup is intentionally best-effort and must never mask the real
-        # import/export result. In particular, if an importer raises after
-        # creating partial objects, preserve that original exception even if a
-        # later cleanup diagnostic also encounters an unsupported datablock.
         cleanup_error = None
         cleanup_report = None
         try:
@@ -365,6 +366,11 @@ def _review_queue_payload(report):
 
 
 def _finalize_report(output_directory, report):
+    output_directory = Path(output_directory)
+    previous_source_index_path = output_directory / SOURCE_INDEX_FILENAME
+    previous_source_index = load_source_index(previous_source_index_path)
+    current_source_index = build_source_index(report)
+
     report["ready"] = sum(1 for item in report.get("results", []) if not item.get("needs_review"))
     report["needs_review"] = sum(1 for item in report.get("results", []) if item.get("needs_review"))
     all_export_warnings = [
@@ -402,6 +408,7 @@ def _finalize_report(output_directory, report):
     review_path = _write_json(output_directory, "review-queue.json", review_payload)
     report["review_queue_path"] = str(review_path)
 
+    catalog = None
     try:
         catalog_path, catalog = build_library_index(output_directory)
         report["library_index_path"] = str(catalog_path)
@@ -415,6 +422,49 @@ def _finalize_report(output_directory, report):
         report["library_missing_asset_count"] = None
         report["library_asset_warning_count"] = None
         report["library_index_error"] = str(exc)
+
+    if report.get("aborted"):
+        source_diagnostics = {
+            "comparable": False,
+            "skippedReason": "ABORTED_BATCH",
+            "staleFamilyIds": [],
+            "failedRefreshFamilyIds": [],
+            "staleCount": 0,
+            "failedRefreshCount": 0,
+        }
+        report["source_index_updated"] = False
+        report["source_index_path"] = (
+            str(previous_source_index_path) if previous_source_index_path.is_file() else None
+        )
+        report["source_index_error"] = None
+    else:
+        catalog_ids = {
+            str(item.get("familyId"))
+            for item in ((catalog or {}).get("families", ()) or ())
+            if isinstance(item, dict) and item.get("familyId")
+        }
+        source_diagnostics = compare_source_indexes(
+            previous_source_index,
+            current_source_index,
+            catalog_family_ids=catalog_ids,
+        )
+        try:
+            source_index_path = write_source_index(output_directory, current_source_index)
+            report["source_index_path"] = str(source_index_path)
+            report["source_index_updated"] = True
+            report["source_index_error"] = None
+        except Exception as exc:
+            report["source_index_path"] = None
+            report["source_index_updated"] = False
+            report["source_index_error"] = str(exc)
+
+    report["source_index_comparable"] = bool(source_diagnostics.get("comparable", False))
+    report["stale_output_family_ids"] = list(source_diagnostics.get("staleFamilyIds", ()))
+    report["failed_refresh_family_ids"] = list(source_diagnostics.get("failedRefreshFamilyIds", ()))
+    report["stale_output_count"] = int(source_diagnostics.get("staleCount", 0) or 0)
+    report["failed_refresh_package_count"] = int(source_diagnostics.get("failedRefreshCount", 0) or 0)
+    if source_diagnostics.get("skippedReason"):
+        report["source_index_diagnostic_skipped_reason"] = source_diagnostics.get("skippedReason")
 
     try:
         audit_path, audit = write_library_audit(output_directory)
