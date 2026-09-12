@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from . import core
@@ -304,24 +306,220 @@ def _inject_member_roles(root, data):
             member["roleRefinement"] = refinement
 
 
-def _remove_partial_export(manifest_path, glb_path, extra_paths=()):
-    paths = [manifest_path, glb_path]
-    paths.extend(extra_paths or ())
-    for path in paths:
-        if path is None:
-            continue
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-
 def _thumbnail_path(directory, root):
     return Path(directory) / f"{core.slugify(root.bfc_family_name)}.thumbnail.png"
 
 
 def _primary_glb_path(directory, root):
     return Path(directory) / f"{core.slugify(root.bfc_family_name)}.glb"
+
+
+def _manifest_sort_key(path, stage_directory):
+    relative = path.relative_to(stage_directory).as_posix()
+    is_manifest = path.name.endswith(".family.json")
+    # Runtime discovery contract goes last. During an overwrite, no old manifest
+    # should remain visible while its referenced assets are being replaced.
+    return (1 if is_manifest else 0, relative)
+
+
+def _existing_directories(directory):
+    directory = Path(directory)
+    if not directory.is_dir():
+        return set()
+    return {
+        path.relative_to(directory).as_posix()
+        for path in directory.rglob("*")
+        if path.is_dir()
+    }
+
+
+def _remove_new_empty_directories(directory, existing_directories, destination_existed):
+    directory = Path(directory)
+    if not directory.exists():
+        return
+    directories = sorted(
+        (path for path in directory.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    for path in directories:
+        relative = path.relative_to(directory).as_posix()
+        if relative in existing_directories:
+            continue
+        try:
+            if not any(path.iterdir()):
+                path.rmdir()
+        except Exception:
+            pass
+    if not destination_existed:
+        try:
+            if directory.is_dir() and not any(directory.iterdir()):
+                directory.rmdir()
+        except Exception:
+            pass
+
+
+def _commit_staged_package(stage_directory, destination_directory):
+    """Commit a validated staged package with rollback-safe per-file replaces.
+
+    Only files produced by the current export are replaced. Unrelated files in
+    the package directory remain untouched. Existing targets are moved into a
+    same-filesystem backup first, and the family manifest is committed last.
+    """
+    stage_directory = Path(stage_directory)
+    destination_directory = Path(destination_directory)
+    destination_parent = destination_directory.parent
+    destination_parent.mkdir(parents=True, exist_ok=True)
+
+    staged_files = sorted(
+        (path for path in stage_directory.rglob("*") if path.is_file()),
+        key=lambda path: _manifest_sort_key(path, stage_directory),
+    )
+    if not staged_files:
+        raise RuntimeError("Staged family package contains no files")
+
+    manifest_files = [path for path in staged_files if path.name.endswith(".family.json")]
+    if len(manifest_files) != 1:
+        raise RuntimeError(f"Staged family package must contain exactly one manifest, got {len(manifest_files)}")
+
+    destination_existed = destination_directory.exists()
+    existing_directories = _existing_directories(destination_directory)
+    backup_root = stage_directory.parent / "__bfc_backup__"
+    backups = {}
+    touched_targets = []
+
+    def backup_existing(target):
+        if target in backups or not target.exists():
+            return
+        relative = target.relative_to(destination_directory)
+        backup = backup_root / relative
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(target, backup)
+        backups[target] = backup
+
+    try:
+        # Hide the old discovery contract before replacing its referenced files.
+        # If anything fails, rollback restores this manifest and every replaced
+        # asset before re-raising.
+        manifest_target = destination_directory / manifest_files[0].relative_to(stage_directory)
+        if manifest_target.exists():
+            backup_existing(manifest_target)
+            touched_targets.append(manifest_target)
+
+        for source in staged_files:
+            relative = source.relative_to(stage_directory)
+            target = destination_directory / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            if target not in touched_targets:
+                backup_existing(target)
+                touched_targets.append(target)
+            os.replace(source, target)
+    except Exception:
+        for target in reversed(touched_targets):
+            try:
+                if target.exists() and target.is_file():
+                    target.unlink()
+            except Exception:
+                pass
+            backup = backups.get(target)
+            if backup is not None and backup.exists():
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    os.replace(backup, target)
+                except Exception:
+                    pass
+        _remove_new_empty_directories(
+            destination_directory,
+            existing_directories,
+            destination_existed,
+        )
+        raise
+
+
+def _build_staged_typed_package(
+    root,
+    stage_directory,
+    export_glb,
+    export_baked_types,
+    export_thumbnail,
+    export_lods,
+    thumbnail_size,
+):
+    stage_directory = Path(stage_directory)
+    manifest_path, _ = core.export_family(root, stage_directory, export_glb=False)
+    glb_path = None
+
+    if export_glb:
+        glb_path = _primary_glb_path(stage_directory, root)
+        export_glb_geometry(root, glb_path)
+        if not glb_path.exists() or glb_path.stat().st_size <= 0:
+            raise RuntimeError("Primary GLB export did not create a non-empty file")
+
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data.update(typed_manifest_metadata(root))
+    _inject_member_roles(root, data)
+
+    if glb_path is not None:
+        variant_result = export_baked_type_variants(
+            root,
+            stage_directory,
+            glb_path,
+            export_all_types=bool(export_baked_types),
+        )
+        data["geometryVariants"] = variant_result["variants"]
+        data["geometryStrategy"] = {
+            "mode": "BAKED_TYPE_VARIANTS" if len(data["geometryVariants"]) > 1 else "BAKED_ACTIVE_TYPE",
+            "activeType": str(root.bfc_type_name),
+            "variantCount": len(data["geometryVariants"]),
+        }
+
+        if export_lods:
+            primary = data["geometryVariants"].get(str(root.bfc_type_name), {})
+            primary_uri = primary.get("uri", Path(glb_path).name)
+            lod_result = export_family_lods(
+                root,
+                stage_directory,
+                primary_uri=primary_uri,
+                enabled=True,
+            )
+            data["geometryLods"] = lod_result["lods"]
+            data["lodStrategy"] = {
+                "mode": "NON_DESTRUCTIVE_DECIMATE",
+                "source": "LOD0",
+                "levelCount": len(lod_result["lods"]),
+                "protectedRoles": sorted({
+                    item.get("role")
+                    for level in lod_result["lods"].values()
+                    for item in level.get("protectedOrSkippedMembers", [])
+                    if item.get("role")
+                }),
+            }
+            data["runtimeCost"] = lod_result["runtimeCost"]
+            data["mobileBudget"] = lod_result["mobileBudget"]
+            for warning in lod_result.get("warnings", ()):
+                data.setdefault("exportWarnings", []).append(f"LOD: {warning}")
+
+    if export_thumbnail:
+        thumbnail_path = _thumbnail_path(stage_directory, root)
+        try:
+            data["thumbnail"] = render_family_thumbnail(
+                root,
+                thumbnail_path,
+                size=thumbnail_size,
+            )
+        except Exception as exc:
+            try:
+                thumbnail_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            data.setdefault("exportWarnings", []).append(
+                f"Thumbnail render failed: {exc}"
+            )
+
+    assert_valid_manifest(data)
+    manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    return manifest_path, glb_path
 
 
 def export_typed_family(
@@ -333,94 +531,38 @@ def export_typed_family(
     export_lods=False,
     thumbnail_size=DEFAULT_THUMBNAIL_SIZE,
 ):
-    manifest_path = None
-    glb_path = None
-    variant_files = []
-    lod_files = []
-    thumbnail_path = None
+    """Export one family package through a validate-before-overwrite transaction.
 
-    try:
-        # Base manifest creation and the primary GLB now belong to the same
-        # transaction. A failed primary GLB export cannot leave a discoverable
-        # half-package behind.
-        manifest_path, _ = core.export_family(root, directory, export_glb=False)
-        if export_glb:
-            glb_path = _primary_glb_path(directory, root)
-            export_glb_geometry(root, glb_path)
-            if not glb_path.exists() or glb_path.stat().st_size <= 0:
-                raise RuntimeError("Primary GLB export did not create a non-empty file")
+    All primary/variant/LOD/thumbnail artifacts are first generated in a sibling
+    same-filesystem staging directory. The existing destination is not modified
+    until schema validation succeeds. Commit uses rollback-safe `os.replace`
+    operations and writes the new family manifest last.
+    """
+    destination = Path(directory)
+    destination.parent.mkdir(parents=True, exist_ok=True)
 
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        data.update(typed_manifest_metadata(root))
-        _inject_member_roles(root, data)
+    with tempfile.TemporaryDirectory(
+        prefix=".bfc-package-",
+        dir=str(destination.parent),
+    ) as temporary_root:
+        stage_directory = Path(temporary_root) / "package"
+        stage_directory.mkdir(parents=True, exist_ok=True)
 
-        if glb_path is not None:
-            variant_result = export_baked_type_variants(
-                root,
-                directory,
-                glb_path,
-                export_all_types=bool(export_baked_types),
-            )
-            data["geometryVariants"] = variant_result["variants"]
-            variant_files = list(variant_result.get("createdFiles", ()))
-            data["geometryStrategy"] = {
-                "mode": "BAKED_TYPE_VARIANTS" if len(data["geometryVariants"]) > 1 else "BAKED_ACTIVE_TYPE",
-                "activeType": str(root.bfc_type_name),
-                "variantCount": len(data["geometryVariants"]),
-            }
+        staged_manifest, staged_glb = _build_staged_typed_package(
+            root,
+            stage_directory,
+            export_glb=bool(export_glb),
+            export_baked_types=bool(export_baked_types),
+            export_thumbnail=bool(export_thumbnail),
+            export_lods=bool(export_lods),
+            thumbnail_size=thumbnail_size,
+        )
 
-            if export_lods:
-                primary = data["geometryVariants"].get(str(root.bfc_type_name), {})
-                primary_uri = primary.get("uri", Path(glb_path).name)
-                lod_result = export_family_lods(
-                    root,
-                    directory,
-                    primary_uri=primary_uri,
-                    enabled=True,
-                )
-                lod_files = list(lod_result.get("createdFiles", ()))
-                data["geometryLods"] = lod_result["lods"]
-                data["lodStrategy"] = {
-                    "mode": "NON_DESTRUCTIVE_DECIMATE",
-                    "source": "LOD0",
-                    "levelCount": len(lod_result["lods"]),
-                    "protectedRoles": sorted({
-                        item.get("role")
-                        for level in lod_result["lods"].values()
-                        for item in level.get("protectedOrSkippedMembers", [])
-                        if item.get("role")
-                    }),
-                }
-                data["runtimeCost"] = lod_result["runtimeCost"]
-                data["mobileBudget"] = lod_result["mobileBudget"]
-                for warning in lod_result.get("warnings", ()):
-                    data.setdefault("exportWarnings", []).append(f"LOD: {warning}")
+        manifest_relative = staged_manifest.relative_to(stage_directory)
+        glb_relative = staged_glb.relative_to(stage_directory) if staged_glb is not None else None
 
-        if export_thumbnail:
-            thumbnail_path = _thumbnail_path(directory, root)
-            try:
-                data["thumbnail"] = render_family_thumbnail(
-                    root,
-                    thumbnail_path,
-                    size=thumbnail_size,
-                )
-            except Exception as exc:
-                try:
-                    thumbnail_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                thumbnail_path = None
-                data.setdefault("exportWarnings", []).append(
-                    f"Thumbnail render failed: {exc}"
-                )
+        _commit_staged_package(stage_directory, destination)
 
-        assert_valid_manifest(data)
-        manifest_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        extras = list(variant_files) + list(lod_files)
-        if thumbnail_path is not None:
-            extras.append(thumbnail_path)
-        _remove_partial_export(manifest_path, glb_path, extras)
-        raise
-
+    manifest_path = destination / manifest_relative
+    glb_path = destination / glb_relative if glb_relative is not None else None
     return manifest_path, glb_path
