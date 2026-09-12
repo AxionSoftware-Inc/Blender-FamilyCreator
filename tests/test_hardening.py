@@ -16,17 +16,23 @@ class HardeningMetricsTests(unittest.TestCase):
                     "stats": {
                         "nonUniformScaleMembers": 1,
                         "nonUnitScaleMembers": 1,
+                        "shearedTransformMembers": 1,
                         "negativeDeterminantMembers": 1,
                         "shapeKeyMembers": 0,
                         "armatureMembers": 0,
                         "genericNameShare": 0.75,
                         "mixedSceneNameHint": True,
+                        "spatialComponentCount": 4,
+                        "largestSpatialComponentVolumeShare": 0.4,
                     },
                     "warnings": [
                         "Heavy source geometry: 600,000 polygons",
                         "Source name suggests a mixed/multi-item set; review family isolation before automatic acceptance",
+                        "Source geometry forms 4 separated spatial clusters; review whether the source contains multiple unrelated assets",
                     ],
-                    "severe": [],
+                    "severe": [
+                        "1 source member(s) contain canonical transform shear",
+                    ],
                 },
             },
             "export_warnings": ["Thumbnail render failed"],
@@ -36,9 +42,11 @@ class HardeningMetricsTests(unittest.TestCase):
         self.assertIn("MISSING_REQUIRED_ROLE:TOP", reasons)
         self.assertIn("MISSING_RECOMMENDED_ROLE:LEG|SUPPORT", reasons)
         self.assertIn("NON_UNIFORM_SCALE", reasons)
+        self.assertIn("SHEARED_TRANSFORM", reasons)
         self.assertIn("MIRRORED_TRANSFORM", reasons)
         self.assertIn("GENERIC_OBJECT_NAMES", reasons)
         self.assertIn("MIXED_SCENE_SUSPECTED", reasons)
+        self.assertIn("MULTI_ASSET_SPATIAL_CLUSTERS", reasons)
         self.assertIn("HEAVY_GEOMETRY", reasons)
         self.assertIn("EXPORT_WARNING", reasons)
         self.assertNotIn("UNAPPLIED_SCALE", reasons)
@@ -103,6 +111,25 @@ class HardeningMetricsTests(unittest.TestCase):
             }
         }
         self.assertNotIn("GENERIC_OBJECT_NAMES", review_reasons(item))
+
+    def test_single_dominant_spatial_cluster_does_not_raise_multi_asset_reason(self):
+        item = {
+            "quality": {
+                "automaticReady": False,
+                "roleCoverage": 1.0,
+                "missingRoleGroups": [],
+                "missingRecommendedRoleGroups": [],
+                "preflight": {
+                    "stats": {
+                        "spatialComponentCount": 2,
+                        "largestSpatialComponentVolumeShare": 0.95,
+                    },
+                    "warnings": [],
+                    "severe": [],
+                },
+            }
+        }
+        self.assertNotIn("MULTI_ASSET_SPATIAL_CLUSTERS", review_reasons(item))
 
     def test_builds_class_format_reason_and_refinement_metrics(self):
         report = {
