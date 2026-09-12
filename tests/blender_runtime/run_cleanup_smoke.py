@@ -2,7 +2,7 @@
 
 Verifies:
 - post-snapshot Mesh -> Material -> Image dependency cleanup;
-- imported Collection cleanup;
+- nested imported Collection cleanup;
 - pre-existing zero-user data survives;
 - `convert_asset()` cleans partial objects/datablocks even when an importer
   raises after allocating Blender IDs;
@@ -52,8 +52,10 @@ def assert_true(value, message):
 def test_direct_snapshot_cleanup(addon, sentinel):
     snapshot = addon.batch_cleanup.snapshot_datablocks()
 
-    imported_collection = bpy.data.collections.new("ImportedAssetCollection")
-    bpy.context.scene.collection.children.link(imported_collection)
+    imported_parent = bpy.data.collections.new("ImportedAssetCollection")
+    imported_child = bpy.data.collections.new("ImportedAssetChild")
+    bpy.context.scene.collection.children.link(imported_parent)
+    imported_parent.children.link(imported_child)
 
     mesh = bpy.data.meshes.new("ImportedMesh")
     mesh.from_pydata(
@@ -63,7 +65,7 @@ def test_direct_snapshot_cleanup(addon, sentinel):
     )
     mesh.update()
     obj = bpy.data.objects.new("ImportedObject", mesh)
-    imported_collection.objects.link(obj)
+    imported_child.objects.link(obj)
 
     material = bpy.data.materials.new("ImportedMaterial")
     material.use_nodes = True
@@ -80,11 +82,13 @@ def test_direct_snapshot_cleanup(addon, sentinel):
 
     assert_true(result.get("complete") is True, f"Cleanup left post-import IDs: {result}")
     assert_true(result.get("leftoverCount") == 0, f"Unexpected cleanup leftovers: {result}")
+    assert_true(int(result.get("removed", {}).get("collections", 0)) >= 2, f"Nested collections were not counted: {result}")
     assert_true("ImportedMesh" not in bpy.data.meshes, "Imported Mesh leaked")
     assert_true("ImportedMaterial" not in bpy.data.materials, "Imported Material leaked")
     assert_true("ImportedLooseMaterial" not in bpy.data.materials, "Loose Material leaked")
     assert_true("ImportedTexture" not in bpy.data.images, "Imported Image leaked")
-    assert_true("ImportedAssetCollection" not in bpy.data.collections, "Imported Collection leaked")
+    assert_true("ImportedAssetChild" not in bpy.data.collections, "Imported child Collection leaked")
+    assert_true("ImportedAssetCollection" not in bpy.data.collections, "Imported parent Collection leaked")
     assert_true(sentinel.name in bpy.data.images, "Pre-existing sentinel was incorrectly purged")
 
 
