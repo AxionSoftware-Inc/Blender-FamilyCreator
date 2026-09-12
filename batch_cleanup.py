@@ -76,6 +76,8 @@ def _remove_empty_new_collections(snapshot):
         return 0
 
     candidates = _new_items(snapshot, "collections")
+    # Leaves first. Parent collection child counts are re-read as earlier leaf
+    # candidates are removed, so nested empty trees usually collapse in one pass.
     candidates.sort(
         key=lambda collection: len(getattr(collection, "children_recursive", ())),
         reverse=False,
@@ -97,16 +99,24 @@ def cleanup_new_datablocks(snapshot, max_passes=8):
 
     Example dependency chain after deleting imported objects:
       Mesh -> Material -> NodeGroup/Image
-    The first pass removes the mesh/material; a later pass can then remove the
-    image or node group once its user count reaches zero.
+
+    Collections participate in the same progress loop. This matters for nested
+    imported collections where deleting a leaf makes its parent eligible only
+    after Blender updates the hierarchy. The loop stops only when neither an ID
+    nor a collection was removed during a pass.
     """
     removed_by_type = {}
     passes = 0
 
-    _remove_empty_new_collections(snapshot)
-
     for _ in range(max(1, int(max_passes))):
         passes += 1
+        progress = 0
+
+        collection_removed = _remove_empty_new_collections(snapshot)
+        if collection_removed:
+            removed_by_type["collections"] = removed_by_type.get("collections", 0) + collection_removed
+            progress += collection_removed
+
         removable = []
         removable_types = {}
         for name in DATA_COLLECTION_NAMES:
@@ -122,30 +132,42 @@ def cleanup_new_datablocks(snapshot, max_passes=8):
                 removable.append(datablock)
                 removable_types[pointer] = name
 
-        if not removable:
-            break
+        if removable:
+            typed_candidates = [
+                (datablock, removable_types.get(_pointer(datablock), "unknown"))
+                for datablock in removable
+            ]
 
-        typed_candidates = [
-            (datablock, removable_types.get(_pointer(datablock), "unknown"))
-            for datablock in removable
-        ]
-
-        try:
-            bpy.data.batch_remove(ids=removable)
-            for _datablock, name in typed_candidates:
-                removed_by_type[name] = removed_by_type.get(name, 0) + 1
-        except Exception:
-            for datablock, name in typed_candidates:
-                collection = _collection(name)
-                if collection is None:
-                    continue
-                try:
-                    collection.remove(datablock)
+            removed_this_pass = 0
+            try:
+                bpy.data.batch_remove(ids=removable)
+                for _datablock, name in typed_candidates:
                     removed_by_type[name] = removed_by_type.get(name, 0) + 1
-                except Exception:
-                    continue
+                    removed_this_pass += 1
+            except Exception:
+                for datablock, name in typed_candidates:
+                    collection = _collection(name)
+                    if collection is None:
+                        continue
+                    try:
+                        collection.remove(datablock)
+                        removed_by_type[name] = removed_by_type.get(name, 0) + 1
+                        removed_this_pass += 1
+                    except Exception:
+                        continue
+            progress += removed_this_pass
 
-        _remove_empty_new_collections(snapshot)
+        # Removing meshes/materials can release collections indirectly; give the
+        # hierarchy another chance within the same pass and count that work too.
+        collection_removed_after = _remove_empty_new_collections(snapshot)
+        if collection_removed_after:
+            removed_by_type["collections"] = (
+                removed_by_type.get("collections", 0) + collection_removed_after
+            )
+            progress += collection_removed_after
+
+        if progress == 0:
+            break
 
     leftovers = {}
     for name in DATA_COLLECTION_NAMES:
