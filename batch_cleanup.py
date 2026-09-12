@@ -78,7 +78,7 @@ def _remove_empty_new_collections(snapshot):
     candidates = _new_items(snapshot, "collections")
     candidates.sort(
         key=lambda collection: len(getattr(collection, "children_recursive", ())),
-        reverse=True,
+        reverse=False,
     )
     removed = 0
     for collection in candidates:
@@ -118,24 +118,24 @@ def cleanup_new_datablocks(snapshot, max_passes=8):
                         continue
                 except Exception:
                     continue
+                pointer = _pointer(datablock)
                 removable.append(datablock)
-                removable_types[_pointer(datablock)] = name
+                removable_types[pointer] = name
 
         if not removable:
             break
 
-        # batch_remove accepts heterogeneous Blender ID objects. Restricting the
-        # set to IDs created after our snapshot keeps unrelated user data safe.
+        typed_candidates = [
+            (datablock, removable_types.get(_pointer(datablock), "unknown"))
+            for datablock in removable
+        ]
+
         try:
             bpy.data.batch_remove(ids=removable)
-            for datablock in removable:
-                name = removable_types.get(_pointer(datablock), "unknown")
+            for _datablock, name in typed_candidates:
                 removed_by_type[name] = removed_by_type.get(name, 0) + 1
         except Exception:
-            # Fall back to collection-specific removal one ID at a time. A
-            # failure must not mask the asset conversion result.
-            for datablock in removable:
-                name = removable_types.get(_pointer(datablock), "unknown")
+            for datablock, name in typed_candidates:
                 collection = _collection(name)
                 if collection is None:
                     continue
