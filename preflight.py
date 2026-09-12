@@ -1,3 +1,4 @@
+import math
 import re
 
 from . import core
@@ -7,6 +8,10 @@ POLYGON_REVIEW_THRESHOLD = 500_000
 POLYGON_HEAVY_THRESHOLD = 1_500_000
 SCALE_EPSILON = 1e-4
 SHEAR_EPSILON = 1e-4
+SPATIAL_COMPONENT_LIMIT = 384
+SPATIAL_GAP_FRACTION = 0.02
+SPATIAL_GAP_MIN_METERS = 0.005
+SPATIAL_MULTI_ASSET_SHARE = 0.75
 
 
 TYPICAL_MAX_DIMENSION = {
@@ -85,12 +90,7 @@ def _scale_flags(matrix):
 
 
 def _shear_measure(matrix):
-    """Return max normalized dot product between basis columns.
-
-    Pure rotation + arbitrary local scale keeps the basis columns orthogonal.
-    A non-zero normalized dot therefore signals canonical transform shear,
-    independently of unapplied/non-uniform scale magnitude.
-    """
+    """Return max normalized dot product between basis columns."""
     try:
         matrix3 = matrix.to_3x3()
         columns = []
@@ -112,6 +112,101 @@ def _shear_measure(matrix):
         )
     except Exception:
         return 0.0
+
+
+def _bbox_gap(left, right):
+    left_min, left_max = left
+    right_min, right_max = right
+    squared = 0.0
+    for axis in range(3):
+        if float(left_max[axis]) < float(right_min[axis]):
+            gap = float(right_min[axis]) - float(left_max[axis])
+        elif float(right_max[axis]) < float(left_min[axis]):
+            gap = float(left_min[axis]) - float(right_max[axis])
+        else:
+            gap = 0.0
+        squared += gap * gap
+    return math.sqrt(squared)
+
+
+def _bbox_volume(bounds):
+    mins, maxs = bounds
+    spans = [max(float(maxs[i]) - float(mins[i]), 0.0) for i in range(3)]
+    return max(spans[0] * spans[1] * spans[2], 1e-9)
+
+
+def _spatial_components(root, members):
+    """Estimate disconnected physical clusters without mutating source geometry.
+
+    This is a conservative review diagnostic, not an automatic splitter. It is
+    useful for downloaded scenes containing several chairs/tables/models in one
+    source file. Nearby/touching furniture parts remain connected by a small
+    family-scale tolerance.
+    """
+    count = len(members)
+    if count <= 1:
+        return {
+            "componentCount": count,
+            "largestVolumeShare": 1.0 if count else 0.0,
+            "analysisSkipped": False,
+        }
+    if count > SPATIAL_COMPONENT_LIMIT:
+        return {
+            "componentCount": None,
+            "largestVolumeShare": None,
+            "analysisSkipped": True,
+        }
+
+    bounds = []
+    for obj in members:
+        try:
+            bounds.append(core.local_bbox(obj, root))
+        except Exception:
+            return {
+                "componentCount": None,
+                "largestVolumeShare": None,
+                "analysisSkipped": True,
+            }
+
+    family_diag = math.sqrt(
+        float(root.bfc_base_width) ** 2
+        + float(root.bfc_base_depth) ** 2
+        + float(root.bfc_base_height) ** 2
+    )
+    tolerance = max(SPATIAL_GAP_MIN_METERS, family_diag * SPATIAL_GAP_FRACTION)
+
+    parent = list(range(count))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left, right):
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for left in range(count):
+        for right in range(left + 1, count):
+            if _bbox_gap(bounds[left], bounds[right]) <= tolerance:
+                union(left, right)
+
+    component_volume = {}
+    for index, member_bounds in enumerate(bounds):
+        key = find(index)
+        component_volume[key] = component_volume.get(key, 0.0) + _bbox_volume(member_bounds)
+
+    total_volume = sum(component_volume.values())
+    largest_share = max(component_volume.values()) / total_volume if total_volume > 0.0 else 1.0
+    return {
+        "componentCount": len(component_volume),
+        "largestVolumeShare": float(largest_share),
+        "analysisSkipped": False,
+        "gapToleranceMeters": float(tolerance),
+    }
 
 
 def _source_text(root):
@@ -151,6 +246,9 @@ def inspect_family(root):
         "genericNamedMembers": 0,
         "genericNameShare": 0.0,
         "mixedSceneNameHint": False,
+        "spatialComponentCount": None,
+        "largestSpatialComponentVolumeShare": None,
+        "spatialAnalysisSkipped": False,
     }
 
     for obj in members:
@@ -185,6 +283,13 @@ def inspect_family(root):
     if members:
         stats["genericNameShare"] = float(stats["genericNamedMembers"]) / float(len(members))
 
+    spatial = _spatial_components(root, members)
+    stats["spatialComponentCount"] = spatial.get("componentCount")
+    stats["largestSpatialComponentVolumeShare"] = spatial.get("largestVolumeShare")
+    stats["spatialAnalysisSkipped"] = bool(spatial.get("analysisSkipped", False))
+    if "gapToleranceMeters" in spatial:
+        stats["spatialGapToleranceMeters"] = spatial["gapToleranceMeters"]
+
     if stats["meshPolygons"] > POLYGON_HEAVY_THRESHOLD:
         severe.append(f"Very heavy source geometry: {stats['meshPolygons']:,} polygons")
     elif stats["meshPolygons"] > POLYGON_REVIEW_THRESHOLD:
@@ -205,6 +310,19 @@ def inspect_family(root):
         warnings.append(f"{stats['shapeKeyMembers']} source member(s) contain shape keys")
     if stats["armatureMembers"]:
         warnings.append(f"{stats['armatureMembers']} source member(s) use armature modifiers")
+
+    component_count = stats.get("spatialComponentCount")
+    largest_share = stats.get("largestSpatialComponentVolumeShare")
+    if (
+        isinstance(component_count, int)
+        and component_count > 1
+        and isinstance(largest_share, (int, float))
+        and float(largest_share) < SPATIAL_MULTI_ASSET_SHARE
+    ):
+        warnings.append(
+            f"Source geometry forms {component_count} separated spatial clusters; "
+            "review whether the source contains multiple unrelated assets"
+        )
 
     stats["mixedSceneNameHint"] = _mixed_scene_name_hint(root, family_kind)
     if stats["mixedSceneNameHint"]:
