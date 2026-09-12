@@ -6,6 +6,7 @@ from . import core
 POLYGON_REVIEW_THRESHOLD = 500_000
 POLYGON_HEAVY_THRESHOLD = 1_500_000
 SCALE_EPSILON = 1e-4
+SHEAR_EPSILON = 1e-4
 
 
 TYPICAL_MAX_DIMENSION = {
@@ -83,6 +84,36 @@ def _scale_flags(matrix):
     return non_unit, non_uniform
 
 
+def _shear_measure(matrix):
+    """Return max normalized dot product between basis columns.
+
+    Pure rotation + arbitrary local scale keeps the basis columns orthogonal.
+    A non-zero normalized dot therefore signals canonical transform shear,
+    independently of unapplied/non-uniform scale magnitude.
+    """
+    try:
+        matrix3 = matrix.to_3x3()
+        columns = []
+        for index in range(3):
+            column = (
+                float(matrix3[0][index]),
+                float(matrix3[1][index]),
+                float(matrix3[2][index]),
+            )
+            length_sq = sum(value * value for value in column)
+            if length_sq <= 1e-18:
+                return 0.0
+            inv_length = length_sq ** -0.5
+            columns.append(tuple(value * inv_length for value in column))
+
+        return max(
+            abs(sum(columns[left][i] * columns[right][i] for i in range(3)))
+            for left, right in ((0, 1), (0, 2), (1, 2))
+        )
+    except Exception:
+        return 0.0
+
+
 def _source_text(root):
     values = [
         str(getattr(root, "bfc_family_name", "") or ""),
@@ -112,6 +143,8 @@ def inspect_family(root):
         "meshPolygons": 0,
         "nonUnitScaleMembers": 0,
         "nonUniformScaleMembers": 0,
+        "shearedTransformMembers": 0,
+        "maxShearDot": 0.0,
         "negativeDeterminantMembers": 0,
         "shapeKeyMembers": 0,
         "armatureMembers": 0,
@@ -131,6 +164,11 @@ def inspect_family(root):
             stats["nonUnitScaleMembers"] += 1
         if non_uniform:
             stats["nonUniformScaleMembers"] += 1
+
+        shear = _shear_measure(matrix)
+        stats["maxShearDot"] = max(float(stats["maxShearDot"]), float(shear))
+        if shear > SHEAR_EPSILON:
+            stats["shearedTransformMembers"] += 1
 
         try:
             if float(matrix.to_3x3().determinant()) < 0.0:
@@ -157,6 +195,10 @@ def inspect_family(root):
     elif stats["nonUnitScaleMembers"]:
         warnings.append(f"{stats['nonUnitScaleMembers']} source member(s) have unapplied scale")
 
+    if stats["shearedTransformMembers"]:
+        severe.append(
+            f"{stats['shearedTransformMembers']} source member(s) contain canonical transform shear"
+        )
     if stats["negativeDeterminantMembers"]:
         severe.append(f"{stats['negativeDeterminantMembers']} source member(s) have mirrored/negative transforms")
     if stats["shapeKeyMembers"]:
