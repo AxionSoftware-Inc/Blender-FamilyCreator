@@ -27,8 +27,6 @@ def _generator_reason(generator):
 
     reason_code = str(generator.get("reasonCode", "") or "").strip().upper()
     if reason_code == "NO_SEPARATE_FRAME":
-        # A baked Window can be fully valid without independently editable
-        # frame meshes. This is a capability limitation, not a review reason.
         return None
     if reason_code == "PARAMETER_AUTO":
         return "GENERATOR_PARAMETER_AUTO"
@@ -80,6 +78,8 @@ def review_reasons(item):
         reasons.append("NON_UNIFORM_SCALE")
     elif int(stats.get("nonUnitScaleMembers", 0) or 0) > 0:
         reasons.append("UNAPPLIED_SCALE")
+    if int(stats.get("shearedTransformMembers", 0) or 0) > 0:
+        reasons.append("SHEARED_TRANSFORM")
     if int(stats.get("negativeDeterminantMembers", 0) or 0) > 0:
         reasons.append("MIRRORED_TRANSFORM")
     if int(stats.get("shapeKeyMembers", 0) or 0) > 0:
@@ -87,8 +87,6 @@ def review_reasons(item):
     if int(stats.get("armatureMembers", 0) or 0) > 0:
         reasons.append("ARMATURE")
 
-    # Generic Blender/vendor object names are not a review reason by themselves.
-    # They become useful diagnostics when semantic coverage is already low.
     generic_share = float(stats.get("genericNameShare", 0.0) or 0.0)
     if coverage < 0.80 and generic_share >= 0.50:
         reasons.append("GENERIC_OBJECT_NAMES")
