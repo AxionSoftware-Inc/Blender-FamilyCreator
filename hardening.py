@@ -93,6 +93,16 @@ def review_reasons(item):
     if bool(stats.get("mixedSceneNameHint", False)):
         reasons.append("MIXED_SCENE_SUSPECTED")
 
+    spatial_count = stats.get("spatialComponentCount")
+    spatial_share = stats.get("largestSpatialComponentVolumeShare")
+    if (
+        isinstance(spatial_count, int)
+        and spatial_count > 1
+        and isinstance(spatial_share, (int, float))
+        and float(spatial_share) < 0.75
+    ):
+        reasons.append("MULTI_ASSET_SPATIAL_CLUSTERS")
+
     preflight_messages = list(preflight.get("warnings", ()) or ()) + list(preflight.get("severe", ()) or ())
     lowered = "\n".join(str(message).lower() for message in preflight_messages)
     if "heavy source geometry" in lowered:
