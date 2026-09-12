@@ -14,6 +14,10 @@ def _nonnegative_int(value):
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _nonnegative_number(value):
+    return _number(value) and float(value) >= 0.0
+
+
 def _numeric_vector(value, length):
     return (
         isinstance(value, list)
@@ -194,12 +198,50 @@ def _validate_runtime_cost(cost, errors):
     if not isinstance(cost, dict):
         errors.append("runtimeCost must be an object")
         return
+
     measurement = cost.get("measurement")
     if measurement is not None and measurement != "EVALUATED_TRIANGULATED_GEOMETRY":
         errors.append("runtimeCost.measurement is invalid")
-    for field in ("memberCount", "meshObjects", "nonMeshObjects", "vertices", "triangles", "materialSlots"):
+    texture_estimate = cost.get("textureMemoryEstimate")
+    if texture_estimate is not None and texture_estimate != "UNCOMPRESSED_RGBA8":
+        errors.append("runtimeCost.textureMemoryEstimate is invalid")
+
+    for field in (
+        "memberCount",
+        "meshObjects",
+        "nonMeshObjects",
+        "vertices",
+        "triangles",
+        "materialSlots",
+        "drawCallEstimate",
+        "uniqueMaterials",
+        "textureCount",
+        "texturePixels",
+        "maxTextureDimension",
+        "estimatedTextureBytesRGBA",
+    ):
         if field in cost and not _nonnegative_int(cost.get(field)):
             errors.append(f"runtimeCost.{field} must be a non-negative integer")
+
+    if "estimatedTextureMemoryMiB" in cost and not _nonnegative_number(cost.get("estimatedTextureMemoryMiB")):
+        errors.append("runtimeCost.estimatedTextureMemoryMiB must be a non-negative number")
+
+    textures = cost.get("textures")
+    if textures is not None:
+        if not isinstance(textures, list):
+            errors.append("runtimeCost.textures must be an array")
+        else:
+            for index, texture in enumerate(textures):
+                path = f"runtimeCost.textures[{index}]"
+                if not isinstance(texture, dict):
+                    errors.append(f"{path} must be an object")
+                    continue
+                if not isinstance(texture.get("name"), str):
+                    errors.append(f"{path}.name must be a string")
+                for field in ("width", "height", "pixels", "estimatedBytesRGBA"):
+                    if not _nonnegative_int(texture.get(field)):
+                        errors.append(f"{path}.{field} must be a non-negative integer")
+
     members = cost.get("members")
     if members is not None:
         if not isinstance(members, list):
@@ -214,7 +256,7 @@ def _validate_runtime_cost(cost, errors):
                     errors.append(f"{path}.name must be a string")
                 if not isinstance(member.get("role"), str):
                     errors.append(f"{path}.role must be a string")
-                for field in ("vertices", "triangles", "materialSlots"):
+                for field in ("vertices", "triangles", "materialSlots", "drawCallEstimate"):
                     if not _nonnegative_int(member.get(field)):
                         errors.append(f"{path}.{field} must be a non-negative integer")
 
@@ -229,13 +271,23 @@ def _validate_mobile_budget(mobile, errors):
         errors.append("mobileBudget.status is invalid")
     if "policyVersion" in mobile and not _nonnegative_int(mobile.get("policyVersion")):
         errors.append("mobileBudget.policyVersion must be a non-negative integer")
-    for field in ("sourceTriangles", "sourceMaterialSlots"):
+
+    for field in (
+        "sourceTriangles",
+        "sourceMaterialSlots",
+        "sourceDrawCallEstimate",
+        "sourceMaxTextureDimension",
+    ):
         if field in mobile and not _nonnegative_int(mobile.get(field)):
             errors.append(f"mobileBudget.{field} must be a non-negative integer")
+    if "sourceTextureMemoryMiB" in mobile and not _nonnegative_number(mobile.get("sourceTextureMemoryMiB")):
+        errors.append("mobileBudget.sourceTextureMemoryMiB must be a non-negative number")
+
     for field in ("suggestedLod1Ratio", "suggestedLod2Ratio"):
         ratio = mobile.get(field)
         if ratio is not None and (not _number(ratio) or float(ratio) <= 0.0 or float(ratio) > 1.0):
             errors.append(f"mobileBudget.{field} must be in (0, 1]")
+
     budget = mobile.get("budget")
     if budget is not None:
         if not isinstance(budget, dict):
@@ -247,9 +299,22 @@ def _validate_mobile_budget(mobile, errors):
                 "lod1TargetTriangles",
                 "lod2TargetTriangles",
                 "targetMaterialSlots",
+                "targetDrawCalls",
+                "targetTextureDimension",
+                "hardTextureDimension",
+                "targetTextureMemoryMiB",
             ):
                 if not isinstance(budget.get(field), int) or budget.get(field, 0) <= 0:
                     errors.append(f"mobileBudget.budget.{field} must be a positive integer")
+            target_dimension = budget.get("targetTextureDimension")
+            hard_dimension = budget.get("hardTextureDimension")
+            if (
+                isinstance(target_dimension, int)
+                and isinstance(hard_dimension, int)
+                and hard_dimension < target_dimension
+            ):
+                errors.append("mobileBudget.budget.hardTextureDimension must be >= targetTextureDimension")
+
     warnings = mobile.get("warnings")
     if warnings is not None and (
         not isinstance(warnings, list) or any(not isinstance(item, str) for item in warnings)
@@ -287,6 +352,10 @@ def _validate_geometry_lods(data, errors):
             errors.append(f"{path}.generated must be boolean")
         if not _nonnegative_int(record.get("triangles")):
             errors.append(f"{path}.triangles must be a non-negative integer")
+        if "targetTriangles" in record and not _nonnegative_int(record.get("targetTriangles")):
+            errors.append(f"{path}.targetTriangles must be a non-negative integer")
+        if "meetsTarget" in record and not isinstance(record.get("meetsTarget"), bool):
+            errors.append(f"{path}.meetsTarget must be boolean")
 
         alias = record.get("aliasOf")
         if alias is not None:
