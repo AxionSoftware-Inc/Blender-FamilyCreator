@@ -28,7 +28,19 @@ def _mesh_cost(obj, depsgraph):
 
         vertices = len(getattr(mesh, "vertices", ()))
         material_slots = len(getattr(mesh, "materials", ()))
-        draw_calls = max(1, material_slots) if triangles > 0 else 0
+
+        # Vendor files often keep many unused material slots. Counting all slots
+        # as draw calls creates noisy mobile-budget warnings, so estimate the
+        # number of actual submesh/material submissions from evaluated polygon
+        # material indices instead. An unmaterialed mesh still costs one draw.
+        used_material_indices = {
+            int(getattr(poly, "material_index", 0) or 0)
+            for poly in getattr(mesh, "polygons", ())
+        }
+        draw_calls = len(used_material_indices) if triangles > 0 else 0
+        if triangles > 0 and draw_calls == 0:
+            draw_calls = 1
+
         return {
             "vertices": int(vertices),
             "triangles": int(triangles),
