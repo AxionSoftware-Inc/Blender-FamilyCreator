@@ -1,7 +1,11 @@
 """GPU-free Blender smoke test for leak-resistant batch datablock cleanup.
 
-Verifies that post-snapshot Mesh -> Material -> Image dependencies and imported
-Collections are removed without touching a pre-existing zero-user sentinel.
+Verifies:
+- post-snapshot Mesh -> Material -> Image dependency cleanup;
+- imported Collection cleanup;
+- pre-existing zero-user data survives;
+- `convert_asset()` cleans partial objects/datablocks even when an importer
+  raises after allocating Blender IDs.
 
 Run from repository root:
 
@@ -12,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 import bpy
@@ -43,6 +48,100 @@ def assert_true(value, message):
         raise AssertionError(message)
 
 
+def test_direct_snapshot_cleanup(addon, sentinel):
+    snapshot = addon.batch_cleanup.snapshot_datablocks()
+
+    imported_collection = bpy.data.collections.new("ImportedAssetCollection")
+    bpy.context.scene.collection.children.link(imported_collection)
+
+    mesh = bpy.data.meshes.new("ImportedMesh")
+    mesh.from_pydata(
+        [(-0.5, -0.5, 0.0), (0.5, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)],
+        [],
+        [(0, 1, 2, 3)],
+    )
+    mesh.update()
+    obj = bpy.data.objects.new("ImportedObject", mesh)
+    imported_collection.objects.link(obj)
+
+    material = bpy.data.materials.new("ImportedMaterial")
+    material.use_nodes = True
+    image = bpy.data.images.new("ImportedTexture", width=4, height=4)
+    texture_node = material.node_tree.nodes.new("ShaderNodeTexImage")
+    texture_node.image = image
+    mesh.materials.append(material)
+
+    loose_material = bpy.data.materials.new("ImportedLooseMaterial")
+    assert_true(loose_material.users == 0, "Loose test material unexpectedly has users")
+
+    bpy.data.objects.remove(obj, do_unlink=True)
+    result = addon.batch_cleanup.cleanup_new_datablocks(snapshot)
+
+    assert_true(result.get("complete") is True, f"Cleanup left post-import IDs: {result}")
+    assert_true(result.get("leftoverCount") == 0, f"Unexpected cleanup leftovers: {result}")
+    assert_true("ImportedMesh" not in bpy.data.meshes, "Imported Mesh leaked")
+    assert_true("ImportedMaterial" not in bpy.data.materials, "Imported Material leaked")
+    assert_true("ImportedLooseMaterial" not in bpy.data.materials, "Loose Material leaked")
+    assert_true("ImportedTexture" not in bpy.data.images, "Imported Image leaked")
+    assert_true("ImportedAssetCollection" not in bpy.data.collections, "Imported Collection leaked")
+    assert_true(sentinel.name in bpy.data.images, "Pre-existing sentinel was incorrectly purged")
+
+
+def test_partial_import_failure_cleanup(addon, sentinel):
+    original_import_asset = addon.batch.import_asset
+
+    def failing_import(_filepath, context):
+        collection = bpy.data.collections.new("PartialFailureCollection")
+        context.scene.collection.children.link(collection)
+
+        mesh = bpy.data.meshes.new("PartialFailureMesh")
+        mesh.from_pydata(
+            [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+            [],
+            [(0, 1, 2)],
+        )
+        mesh.update()
+        obj = bpy.data.objects.new("PartialFailureObject", mesh)
+        collection.objects.link(obj)
+
+        material = bpy.data.materials.new("PartialFailureMaterial")
+        image = bpy.data.images.new("PartialFailureImage", width=8, height=8)
+        material.use_nodes = True
+        node = material.node_tree.nodes.new("ShaderNodeTexImage")
+        node.image = image
+        mesh.materials.append(material)
+
+        raise RuntimeError("forced partial importer failure")
+
+    addon.batch.import_asset = failing_import
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                addon.batch.convert_asset(
+                    bpy.context,
+                    Path(tmp) / "forced.fbx",
+                    Path(tmp) / "output",
+                    "GENERIC",
+                    export_glb=False,
+                    export_baked_types=False,
+                    export_thumbnail=False,
+                    export_lods=False,
+                )
+            except RuntimeError as exc:
+                assert_true("forced partial importer failure" in str(exc), f"Unexpected importer failure: {exc}")
+            else:
+                raise AssertionError("Forced partial importer failure did not propagate")
+    finally:
+        addon.batch.import_asset = original_import_asset
+
+    assert_true("PartialFailureObject" not in bpy.data.objects, "Partial importer Object leaked")
+    assert_true("PartialFailureMesh" not in bpy.data.meshes, "Partial importer Mesh leaked")
+    assert_true("PartialFailureMaterial" not in bpy.data.materials, "Partial importer Material leaked")
+    assert_true("PartialFailureImage" not in bpy.data.images, "Partial importer Image leaked")
+    assert_true("PartialFailureCollection" not in bpy.data.collections, "Partial importer Collection leaked")
+    assert_true(sentinel.name in bpy.data.images, "Pre-existing sentinel was removed after importer failure")
+
+
 def main():
     addon = load_addon()
     addon.register()
@@ -50,47 +149,12 @@ def main():
     try:
         clean_scene()
 
-        # This zero-user image existed before the asset import. A global orphan
-        # purge would delete it; snapshot cleanup must preserve it.
+        # A global orphan purge would delete this zero-user image. Snapshot
+        # cleanup must preserve it because it existed before the conversion.
         sentinel = bpy.data.images.new("BFC_KEEP_SENTINEL", width=2, height=2)
-        snapshot = addon.batch_cleanup.snapshot_datablocks()
 
-        imported_collection = bpy.data.collections.new("ImportedAssetCollection")
-        bpy.context.scene.collection.children.link(imported_collection)
-
-        mesh = bpy.data.meshes.new("ImportedMesh")
-        mesh.from_pydata(
-            [(-0.5, -0.5, 0.0), (0.5, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)],
-            [],
-            [(0, 1, 2, 3)],
-        )
-        mesh.update()
-        obj = bpy.data.objects.new("ImportedObject", mesh)
-        imported_collection.objects.link(obj)
-
-        material = bpy.data.materials.new("ImportedMaterial")
-        material.use_nodes = True
-        image = bpy.data.images.new("ImportedTexture", width=4, height=4)
-        texture_node = material.node_tree.nodes.new("ShaderNodeTexImage")
-        texture_node.image = image
-        mesh.materials.append(material)
-
-        loose_material = bpy.data.materials.new("ImportedLooseMaterial")
-        assert_true(loose_material.users == 0, "Loose test material unexpectedly has users")
-
-        # Simulate the batch object's child-first cleanup. The remaining ID
-        # dependency chain must be resolved by cleanup_new_datablocks().
-        bpy.data.objects.remove(obj, do_unlink=True)
-        result = addon.batch_cleanup.cleanup_new_datablocks(snapshot)
-
-        assert_true(result.get("complete") is True, f"Cleanup left post-import IDs: {result}")
-        assert_true(result.get("leftoverCount") == 0, f"Unexpected cleanup leftovers: {result}")
-        assert_true("ImportedMesh" not in bpy.data.meshes, "Imported Mesh leaked")
-        assert_true("ImportedMaterial" not in bpy.data.materials, "Imported Material leaked")
-        assert_true("ImportedLooseMaterial" not in bpy.data.materials, "Loose Material leaked")
-        assert_true("ImportedTexture" not in bpy.data.images, "Imported Image leaked")
-        assert_true("ImportedAssetCollection" not in bpy.data.collections, "Imported Collection leaked")
-        assert_true("BFC_KEEP_SENTINEL" in bpy.data.images, "Pre-existing sentinel was incorrectly purged")
+        test_direct_snapshot_cleanup(addon, sentinel)
+        test_partial_import_failure_cleanup(addon, sentinel)
 
         print("CLEANUP_SMOKE: PASS")
     finally:
