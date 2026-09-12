@@ -50,6 +50,10 @@ def _manifest(family_id, name, family_kind, automatic_ready=True):
             "sourceDrawCallEstimate": 3,
             "sourceMaxTextureDimension": 2048,
             "sourceTextureMemoryMiB": 24.5,
+            "optimizationReasons": [],
+            "geometryLodRecommended": False,
+            "materialOptimizationRecommended": False,
+            "textureOptimizationRecommended": False,
             "suggestedLod1Ratio": 1.0,
             "suggestedLod2Ratio": 0.5,
         },
@@ -74,6 +78,10 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(payload["needsReview"], 1)
             self.assertEqual(payload["classCounts"], {"SOFA": 1, "TABLE": 1})
             self.assertEqual(payload["mobileBudgetStatusCounts"], {"WITHIN_TARGET": 2})
+            self.assertEqual(payload["mobileOptimizationReasonCounts"], {})
+            self.assertEqual(payload["familiesRecommendedForGeometryLod"], 0)
+            self.assertEqual(payload["familiesRecommendedForMaterialOptimization"], 0)
+            self.assertEqual(payload["familiesRecommendedForTextureOptimization"], 0)
             self.assertEqual(payload["familiesOverMobileTarget"], 0)
             self.assertEqual(payload["familiesOverMobileHardLimit"], 0)
 
@@ -101,13 +109,27 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(first["mobileBudget"]["policyVersion"], 2)
             self.assertEqual(first["mobileBudget"]["status"], "WITHIN_TARGET")
             self.assertEqual(first["mobileBudget"]["sourceDrawCallEstimate"], 3)
+            self.assertEqual(first["mobileBudget"]["optimizationReasons"], [])
+            self.assertFalse(first["mobileBudget"]["geometryLodRecommended"])
 
     def test_mobile_status_counts_include_runtime_optimization_pressure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for index, status in enumerate(("WITHIN_TARGET", "OVER_TARGET", "OVER_HARD_LIMIT"), start=1):
+            statuses = ("WITHIN_TARGET", "OVER_TARGET", "OVER_HARD_LIMIT")
+            for index, status in enumerate(statuses, start=1):
                 manifest = _manifest(f"axion:chair:{index}", f"Chair{index}", "CHAIR")
                 manifest["mobileBudget"]["status"] = status
+                if status == "OVER_TARGET":
+                    manifest["mobileBudget"].update({
+                        "optimizationReasons": ["TRIANGLES", "DRAW_CALLS"],
+                        "geometryLodRecommended": True,
+                        "materialOptimizationRecommended": True,
+                    })
+                elif status == "OVER_HARD_LIMIT":
+                    manifest["mobileBudget"].update({
+                        "optimizationReasons": ["TEXTURE_DIMENSION", "TEXTURE_MEMORY"],
+                        "textureOptimizationRecommended": True,
+                    })
                 path = root / str(index) / f"chair{index}.family.json"
                 path.parent.mkdir(parents=True)
                 path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -117,6 +139,13 @@ class CatalogTests(unittest.TestCase):
                 payload["mobileBudgetStatusCounts"],
                 {"OVER_HARD_LIMIT": 1, "OVER_TARGET": 1, "WITHIN_TARGET": 1},
             )
+            self.assertEqual(
+                payload["mobileOptimizationReasonCounts"],
+                {"DRAW_CALLS": 1, "TEXTURE_DIMENSION": 1, "TEXTURE_MEMORY": 1, "TRIANGLES": 1},
+            )
+            self.assertEqual(payload["familiesRecommendedForGeometryLod"], 1)
+            self.assertEqual(payload["familiesRecommendedForMaterialOptimization"], 1)
+            self.assertEqual(payload["familiesRecommendedForTextureOptimization"], 1)
             self.assertEqual(payload["familiesOverMobileTarget"], 1)
             self.assertEqual(payload["familiesOverMobileHardLimit"], 1)
 
