@@ -4,6 +4,10 @@ A production library root can contain packages from multiple independent batch
 jobs, so merely comparing `library-index.json` against one input directory would
 create false stale-package warnings. This module only compares runs when both
 input root and requested Family Class match the previous batch-source index.
+
+Removed-source packages are only called *stale outputs* when the corresponding
+familyId still exists in the current library catalog. This avoids flagging a
+source that failed before ever producing a package.
 """
 
 from __future__ import annotations
@@ -74,14 +78,22 @@ def source_index_scope_matches(previous, current):
     )
 
 
-def compare_source_indexes(previous, current, catalog_family_ids=()):
-    catalog_ids = {str(value) for value in (catalog_family_ids or ()) if value}
+def compare_source_indexes(previous, current, catalog_family_ids=None):
+    catalog_available = catalog_family_ids is not None
+    catalog_ids = (
+        {str(value) for value in (catalog_family_ids or ()) if value}
+        if catalog_available
+        else set()
+    )
     comparable = source_index_scope_matches(previous, current)
     result = {
         "comparable": comparable,
+        "catalogAvailable": catalog_available,
         "staleFamilyIds": [],
+        "unverifiedStaleCandidateFamilyIds": [],
         "failedRefreshFamilyIds": [],
         "staleCount": 0,
+        "unverifiedStaleCandidateCount": 0,
         "failedRefreshCount": 0,
     }
     if not comparable:
@@ -95,21 +107,31 @@ def compare_source_indexes(previous, current, catalog_family_ids=()):
     current_records = [item for item in (current.get("sources", ()) or ()) if isinstance(item, dict)]
     current_ids = {str(item.get("familyId")) for item in current_records if item.get("familyId")}
 
-    stale = sorted(previous_ids - current_ids)
+    stale_candidates = previous_ids - current_ids
+    if catalog_available:
+        stale = sorted(stale_candidates & catalog_ids)
+        unverified = []
+    else:
+        stale = []
+        unverified = sorted(stale_candidates)
+
     failed_refresh = sorted(
         {
             str(item.get("familyId"))
             for item in current_records
             if item.get("familyId")
             and not item.get("converted")
+            and catalog_available
             and str(item.get("familyId")) in catalog_ids
         }
     )
 
     result.update({
         "staleFamilyIds": stale,
+        "unverifiedStaleCandidateFamilyIds": unverified,
         "failedRefreshFamilyIds": failed_refresh,
         "staleCount": len(stale),
+        "unverifiedStaleCandidateCount": len(unverified),
         "failedRefreshCount": len(failed_refresh),
     })
     return result
