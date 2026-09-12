@@ -105,6 +105,10 @@ def _entry_from_manifest(path, root, data):
             "generated": bool(record.get("generated", False)),
             "triangles": int(record.get("triangles", 0) or 0),
         }
+        if "targetTriangles" in record:
+            resolved_lods[level]["targetTriangles"] = int(record.get("targetTriangles", 0) or 0)
+        if "meetsTarget" in record:
+            resolved_lods[level]["meetsTarget"] = bool(record.get("meetsTarget"))
         if record.get("aliasOf"):
             resolved_lods[level]["aliasOf"] = record.get("aliasOf")
 
@@ -144,13 +148,29 @@ def _entry_from_manifest(path, root, data):
             "triangles": int(runtime_cost.get("triangles", 0) or 0),
             "vertices": int(runtime_cost.get("vertices", 0) or 0),
             "materialSlots": int(runtime_cost.get("materialSlots", 0) or 0),
+            "uniqueMaterials": int(runtime_cost.get("uniqueMaterials", 0) or 0),
+            "drawCallEstimate": int(runtime_cost.get("drawCallEstimate", 0) or 0),
+            "textureCount": int(runtime_cost.get("textureCount", 0) or 0),
+            "maxTextureDimension": int(runtime_cost.get("maxTextureDimension", 0) or 0),
+            "estimatedTextureMemoryMiB": round(
+                float(runtime_cost.get("estimatedTextureMemoryMiB", 0.0) or 0.0),
+                3,
+            ),
             "memberCount": int(runtime_cost.get("memberCount", 0) or 0),
         }
 
     mobile_budget = data.get("mobileBudget")
     if isinstance(mobile_budget, dict):
         entry["mobileBudget"] = {
+            "policyVersion": int(mobile_budget.get("policyVersion", 0) or 0),
             "status": mobile_budget.get("status"),
+            "sourceTriangles": int(mobile_budget.get("sourceTriangles", 0) or 0),
+            "sourceDrawCallEstimate": int(mobile_budget.get("sourceDrawCallEstimate", 0) or 0),
+            "sourceMaxTextureDimension": int(mobile_budget.get("sourceMaxTextureDimension", 0) or 0),
+            "sourceTextureMemoryMiB": round(
+                float(mobile_budget.get("sourceTextureMemoryMiB", 0.0) or 0.0),
+                3,
+            ),
             "suggestedLod1Ratio": mobile_budget.get("suggestedLod1Ratio"),
             "suggestedLod2Ratio": mobile_budget.get("suggestedLod2Ratio"),
         }
@@ -217,6 +237,18 @@ def build_library_index(root_directory):
     )
     lod_family_count = sum(1 for item in entries if item.get("geometryLods"))
 
+    runtime_costs = [item.get("runtimeCost") for item in entries if isinstance(item.get("runtimeCost"), dict)]
+    total_triangles = sum(int(cost.get("triangles", 0) or 0) for cost in runtime_costs)
+    total_draw_calls = sum(int(cost.get("drawCallEstimate", 0) or 0) for cost in runtime_costs)
+    total_texture_memory = sum(float(cost.get("estimatedTextureMemoryMiB", 0.0) or 0.0) for cost in runtime_costs)
+    max_family_triangles = max((int(cost.get("triangles", 0) or 0) for cost in runtime_costs), default=0)
+    max_family_draw_calls = max((int(cost.get("drawCallEstimate", 0) or 0) for cost in runtime_costs), default=0)
+    max_texture_dimension = max((int(cost.get("maxTextureDimension", 0) or 0) for cost in runtime_costs), default=0)
+    max_family_texture_memory = max(
+        (float(cost.get("estimatedTextureMemoryMiB", 0.0) or 0.0) for cost in runtime_costs),
+        default=0.0,
+    )
+
     payload = {
         "schema": CATALOG_SCHEMA,
         "schemaVersion": CATALOG_VERSION,
@@ -229,6 +261,18 @@ def build_library_index(root_directory):
         "familiesWithAssetWarnings": sum(1 for item in entries if item.get("assetWarnings")),
         "familiesWithLods": lod_family_count,
         "mobileBudgetStatusCounts": dict(sorted(mobile_status_counts.items())),
+        "familiesOverMobileTarget": int(mobile_status_counts.get("OVER_TARGET", 0)),
+        "familiesOverMobileHardLimit": int(mobile_status_counts.get("OVER_HARD_LIMIT", 0)),
+        "runtimeCostSummary": {
+            "measuredFamilies": len(runtime_costs),
+            "totalTriangles": total_triangles,
+            "maxFamilyTriangles": max_family_triangles,
+            "totalDrawCallEstimate": total_draw_calls,
+            "maxFamilyDrawCallEstimate": max_family_draw_calls,
+            "totalEstimatedTextureMemoryMiB": round(total_texture_memory, 3),
+            "maxFamilyEstimatedTextureMemoryMiB": round(max_family_texture_memory, 3),
+            "maxTextureDimension": max_texture_dimension,
+        },
         "families": entries,
         "rejectedManifests": rejected,
     }
