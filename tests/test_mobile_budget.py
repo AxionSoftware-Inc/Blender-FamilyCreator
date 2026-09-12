@@ -31,6 +31,10 @@ class MobileBudgetTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "WITHIN_TARGET")
         self.assertEqual(result["policyVersion"], 2)
+        self.assertEqual(result["optimizationReasons"], [])
+        self.assertFalse(result["geometryLodRecommended"])
+        self.assertFalse(result["materialOptimizationRecommended"])
+        self.assertFalse(result["textureOptimizationRecommended"])
         self.assertEqual(result["warnings"], [])
 
     def test_triangle_target_and_hard_limit(self):
@@ -38,6 +42,9 @@ class MobileBudgetTests(unittest.TestCase):
         hard = evaluate_mobile_budget({"triangles": 500_001}, "GENERIC")
         self.assertEqual(target["status"], "OVER_TARGET")
         self.assertEqual(hard["status"], "OVER_HARD_LIMIT")
+        self.assertIn("TRIANGLES", target["optimizationReasons"])
+        self.assertTrue(target["geometryLodRecommended"])
+        self.assertFalse(target["textureOptimizationRecommended"])
         self.assertLess(target["suggestedLod1Ratio"], 1.0)
 
     def test_draw_calls_alone_can_require_optimization(self):
@@ -52,6 +59,10 @@ class MobileBudgetTests(unittest.TestCase):
             "GENERIC",
         )
         self.assertEqual(result["status"], "OVER_TARGET")
+        self.assertEqual(result["optimizationReasons"], ["DRAW_CALLS"])
+        self.assertFalse(result["geometryLodRecommended"])
+        self.assertTrue(result["materialOptimizationRecommended"])
+        self.assertFalse(result["textureOptimizationRecommended"])
         self.assertTrue(any("draw calls" in warning.lower() for warning in result["warnings"]))
 
     def test_texture_dimension_target_vs_hard_limit(self):
@@ -61,6 +72,9 @@ class MobileBudgetTests(unittest.TestCase):
         self.assertEqual(at_target["status"], "WITHIN_TARGET")
         self.assertEqual(at_hard["status"], "OVER_TARGET")
         self.assertEqual(over_hard["status"], "OVER_HARD_LIMIT")
+        self.assertEqual(at_hard["optimizationReasons"], ["TEXTURE_DIMENSION"])
+        self.assertTrue(at_hard["textureOptimizationRecommended"])
+        self.assertFalse(at_hard["geometryLodRecommended"])
 
     def test_texture_memory_can_require_optimization(self):
         result = evaluate_mobile_budget(
@@ -72,7 +86,28 @@ class MobileBudgetTests(unittest.TestCase):
             "GENERIC",
         )
         self.assertEqual(result["status"], "OVER_TARGET")
+        self.assertEqual(result["optimizationReasons"], ["TEXTURE_MEMORY"])
+        self.assertTrue(result["textureOptimizationRecommended"])
         self.assertTrue(any("texture memory" in warning.lower() for warning in result["warnings"]))
+
+    def test_combined_recommendations_are_independent(self):
+        result = evaluate_mobile_budget(
+            {
+                "triangles": 200_000,
+                "materialSlots": 20,
+                "drawCallEstimate": 18,
+                "maxTextureDimension": 4096,
+                "estimatedTextureMemoryMiB": 100.0,
+            },
+            "GENERIC",
+        )
+        self.assertEqual(
+            result["optimizationReasons"],
+            ["TRIANGLES", "MATERIAL_SLOTS", "DRAW_CALLS", "TEXTURE_DIMENSION", "TEXTURE_MEMORY"],
+        )
+        self.assertTrue(result["geometryLodRecommended"])
+        self.assertTrue(result["materialOptimizationRecommended"])
+        self.assertTrue(result["textureOptimizationRecommended"])
 
     def test_class_override_can_keep_same_asset_within_target(self):
         cost = {
