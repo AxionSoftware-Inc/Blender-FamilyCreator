@@ -59,9 +59,11 @@ Hardening tooling now includes:
 - duplicate corpus-key detection;
 - normalized review/failure reasons;
 - unknown-member geometry samples;
-- semantic capability reporting.
+- semantic capability reporting;
+- canonical transform-shear diagnostics;
+- spatial multi-asset/multi-cluster review diagnostics.
 
-Next hardening work is **corpus expansion**, not more tuning of the same seven assets:
+Next semantic hardening work is **corpus expansion**, not more tuning of the same seven assets:
 
 - additional BED/WINDOW from different vendors;
 - broader SOFA/TABLE/CHAIR/CASEWORK/PLUMBING/STAIR samples;
@@ -72,37 +74,51 @@ Engineering target remains >=95% conversion success and >=80% automatic acceptan
 
 ---
 
-## v0.7 — Mobile Cost, LOD and Library Integrity
+## v0.7 — Mobile Cost, LOD and Production Integrity
 
-Status: **implementation complete enough for Blender runtime validation; opt-in until that validation passes**.
+Status: **implemented on `main`, opt-in / unvalidated until the next consolidated local Blender 5.2 gate passes**.
 
 Implemented on `main`:
 
 - evaluated triangulated `runtimeCost` metadata;
-- per-class mobile triangle/material budgets;
+- used-material draw-call estimation instead of counting unused vendor slots as draw calls;
+- unique material and recursive node-tree texture discovery;
+- texture count, maximum texture dimension and conservative uncompressed RGBA8 memory estimates;
+- per-class triangle/material/draw-call/texture budgets;
 - `WITHIN_TARGET` / `OVER_TARGET` / `OVER_HARD_LIMIT` diagnostics;
+- machine-readable optimization reasons for geometry, materials/draw calls and textures;
+- independent `geometryLodRecommended`, `materialOptimizationRecommended` and `textureOptimizationRecommended` flags;
 - suggested LOD1 / LOD2 ratios;
 - non-destructive temporary LOD copies;
 - Blender Decimate-based LOD1/LOD2 GLB derivatives;
 - conservative protection for small hardware/connectors and shape-key/low-poly members;
 - LOD target/meetsTarget metadata;
-- LOD schema validation and transactional cleanup;
-- catalog indexing of LOD files;
+- partial LOD/thumbnail/variant file cleanup;
+- catalog indexing of LOD/resource-cost metadata;
+- library-wide triangle/draw-call/texture-memory summaries;
 - missing/unsafe asset detection;
 - `library-audit.json`;
 - standalone library audit CLI;
-- production headless `batch_cli.py`;
-- GPU-safe LOD smoke test (no thumbnail/render path).
+- production headless `batch_cli.py` with strict integrity mode;
+- leak-resistant per-asset Blender datablock snapshots instead of global orphan purge;
+- partial-import failure cleanup;
+- rollback-safe staged package overwrite with the new manifest committed last;
+- old valid package preservation when a re-export fails;
+- `batch-source-index.json` provenance for same-root reruns;
+- stale-output and failed-refresh package diagnostics without automatic deletion;
+- rotated/off-axis family stretch hardening that does not introduce new transform shear;
+- focused GPU-safe Blender smokes for LOD, transform safety, cleanup, export transaction/state and batch provenance;
+- unified `tools/validate_local.py` validation runner.
 
-LOD remains **disabled by default** in Blender UI and batch settings until the local Blender 5.2 runtime smoke/regression pass is green.
+LOD remains **disabled by default** in Blender UI and batch settings until the consolidated local Blender 5.2 runtime smoke/regression pass is green.
 
 Still planned after validation/data:
 
-- texture resolution budgets;
-- material consolidation diagnostics;
+- actual material consolidation/atlas tooling, beyond current cost diagnostics;
+- texture resize/transcode derivatives, beyond current texture budget diagnostics;
 - silhouette-aware or class-aware simplification beyond generic Decimate;
 - optional glTF mesh compression / meshopt path;
-- better device/distance LOD switching policy;
+- better device/distance LOD switching policy based on real Axion tablet profiling;
 - optional dedicated collision meshes.
 
 The high-quality source family remains the authoring truth; every LOD is a runtime derivative.
@@ -168,6 +184,8 @@ This must be driven by measured failure patterns rather than implemented univers
 3. **Never silently guess dangerous semantics.** Review is preferable to plausible-looking broken BIM data.
 4. **Canonical source state must not drift.** Rebuilds and Type switching must remain idempotent.
 5. **Batch work must be transactional and leak-resistant.** Hundreds of assets should not pollute Blender state.
-6. **Semantic validity and mobile runtime cost are separate concerns.** A good family can still need LOD optimization.
+6. **Semantic validity and mobile runtime cost are separate concerns.** A good family can still need LOD/material/texture optimization.
 7. **LOD is derivative.** Source authoring geometry is never destructively simplified.
-8. **Keep Blender-only generation out of the mobile engine when baked geometry is sufficient.**
+8. **Do not destroy previous good output on a failed refresh.** New packages validate in staging before overwrite.
+9. **Do not auto-delete stale packages.** Detect and report source provenance drift first; pruning must be explicit.
+10. **Keep Blender-only generation out of the mobile engine when baked geometry is sufficient.**
