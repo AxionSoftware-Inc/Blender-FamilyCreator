@@ -54,8 +54,8 @@ def parse_args():
         "--strict",
         action="store_true",
         help=(
-            "Exit non-zero if conversion failures, cleanup leftovers, missing library assets "
-            "or an incomplete library audit remain"
+            "Exit non-zero if conversion failures, cleanup leftovers, stale/failed-refresh packages, "
+            "missing library assets or an incomplete library audit remain"
         ),
     )
     parser.add_argument("--json-summary", help="Optional compact summary output path")
@@ -88,6 +88,14 @@ def _summary(report):
         "lodWarnings": int(report.get("lod_warnings", 0) or 0),
         "cleanupWarnings": int(report.get("cleanup_warnings", 0) or 0),
         "cleanupLeftoverDatablocks": int(report.get("cleanup_leftover_datablocks", 0) or 0),
+        "staleOutputCount": int(report.get("stale_output_count", 0) or 0),
+        "staleOutputFamilyIds": list(report.get("stale_output_family_ids", ()) or ()),
+        "failedRefreshPackageCount": int(report.get("failed_refresh_package_count", 0) or 0),
+        "failedRefreshFamilyIds": list(report.get("failed_refresh_family_ids", ()) or ()),
+        "sourceIndexComparable": bool(report.get("source_index_comparable", False)),
+        "sourceIndexUpdated": bool(report.get("source_index_updated", False)),
+        "sourceIndex": report.get("source_index_path"),
+        "sourceIndexError": report.get("source_index_error"),
         "mobileBudgetStatusCounts": report.get("mobile_budget_status_counts", {}),
         "resolvedClassCounts": report.get("resolved_class_counts", {}),
         "batchReport": report.get("report_path"),
@@ -114,6 +122,15 @@ def _strict_failures(summary):
             f"cleanup warnings={summary['cleanupWarnings']}, "
             f"leftover datablocks={summary['cleanupLeftoverDatablocks']}"
         )
+    if summary["staleOutputCount"]:
+        failures.append(f"{summary['staleOutputCount']} stale output package(s) from removed/renamed sources")
+    if summary["failedRefreshPackageCount"]:
+        failures.append(
+            f"{summary['failedRefreshPackageCount']} package(s) retained from an older successful run "
+            "because the current refresh failed"
+        )
+    if summary.get("sourceIndexError"):
+        failures.append(f"batch source index error: {summary['sourceIndexError']}")
     missing = summary.get("libraryMissingAssetCount")
     if isinstance(missing, int) and missing > 0:
         failures.append(f"{missing} missing library asset(s)")
@@ -174,12 +191,24 @@ def main():
         print(f"LOD warnings: {summary['lodWarnings']}")
         print(f"Cleanup warnings: {summary['cleanupWarnings']}")
         print(f"Cleanup leftover datablocks: {summary['cleanupLeftoverDatablocks']}")
+        print(f"Stale output packages: {summary['staleOutputCount']}")
+        print(f"Failed-refresh retained packages: {summary['failedRefreshPackageCount']}")
         print(f"Mobile budgets: {summary['mobileBudgetStatusCounts']}")
         print(f"Library families: {summary['libraryFamilyCount']}")
         print(f"Library missing assets: {summary['libraryMissingAssetCount']}")
         print(f"Library audit complete: {summary['libraryAuditComplete']}")
+        print(f"Batch source index: {summary['sourceIndex']}")
         print(f"Batch report: {summary['batchReport']}")
         print(f"Library audit: {summary['libraryAudit']}")
+
+        if summary["staleOutputFamilyIds"]:
+            print("Stale package IDs:")
+            for family_id in summary["staleOutputFamilyIds"]:
+                print(f"- {family_id}")
+        if summary["failedRefreshFamilyIds"]:
+            print("Failed-refresh retained package IDs:")
+            for family_id in summary["failedRefreshFamilyIds"]:
+                print(f"- {family_id}")
 
         if args.json_summary:
             summary_path = Path(args.json_summary).expanduser().resolve()
