@@ -5,7 +5,8 @@ Verifies:
 - imported Collection cleanup;
 - pre-existing zero-user data survives;
 - `convert_asset()` cleans partial objects/datablocks even when an importer
-  raises after allocating Blender IDs.
+  raises after allocating Blender IDs;
+- cleanup-diagnostic failure does not mask a successful family conversion.
 
 Run from repository root:
 
@@ -142,6 +143,57 @@ def test_partial_import_failure_cleanup(addon, sentinel):
     assert_true(sentinel.name in bpy.data.images, "Pre-existing sentinel was removed after importer failure")
 
 
+def test_cleanup_diagnostic_failure_is_nonfatal(addon, sentinel):
+    original_import_asset = addon.batch.import_asset
+    original_cleanup = addon.batch.cleanup_new_datablocks
+    recovery_snapshot = addon.batch_cleanup.snapshot_datablocks()
+
+    def simple_import(_filepath, context):
+        mesh = bpy.data.meshes.new("CleanupWarningMesh")
+        mesh.from_pydata(
+            [(-0.5, -0.5, 0.0), (0.5, -0.5, 0.0), (0.0, 0.5, 0.8)],
+            [],
+            [(0, 1, 2)],
+        )
+        mesh.update()
+        obj = bpy.data.objects.new("CleanupWarningObject", mesh)
+        context.collection.objects.link(obj)
+        return [obj]
+
+    def broken_cleanup(_snapshot):
+        raise RuntimeError("forced cleanup diagnostic failure")
+
+    addon.batch.import_asset = simple_import
+    addon.batch.cleanup_new_datablocks = broken_cleanup
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = addon.batch.convert_asset(
+                bpy.context,
+                Path(tmp) / "success.obj",
+                Path(tmp) / "output",
+                "GENERIC",
+                export_glb=False,
+                export_baked_types=False,
+                export_thumbnail=False,
+                export_lods=False,
+            )
+            assert_true(result.get("manifest"), f"Successful conversion result missing: {result}")
+            assert_true(
+                "forced cleanup diagnostic failure" in str(result.get("cleanup_warning", "")),
+                f"Cleanup diagnostic warning missing: {result}",
+            )
+            assert_true(result.get("cleanup", {}).get("complete") is False, f"Cleanup state should be incomplete: {result}")
+    finally:
+        addon.batch.import_asset = original_import_asset
+        addon.batch.cleanup_new_datablocks = original_cleanup
+
+    recovery = original_cleanup(recovery_snapshot)
+    assert_true(recovery.get("complete") is True, f"Recovery cleanup failed: {recovery}")
+    assert_true("CleanupWarningObject" not in bpy.data.objects, "Cleanup-warning Object leaked")
+    assert_true("CleanupWarningMesh" not in bpy.data.meshes, "Cleanup-warning Mesh leaked")
+    assert_true(sentinel.name in bpy.data.images, "Pre-existing sentinel was removed by recovery cleanup")
+
+
 def main():
     addon = load_addon()
     addon.register()
@@ -155,6 +207,7 @@ def main():
 
         test_direct_snapshot_cleanup(addon, sentinel)
         test_partial_import_failure_cleanup(addon, sentinel)
+        test_cleanup_diagnostic_failure_is_nonfatal(addon, sentinel)
 
         print("CLEANUP_SMOKE: PASS")
     finally:
