@@ -5,6 +5,7 @@ from pathlib import Path
 import bpy
 
 from . import core
+from .batch_cleanup import cleanup_new_datablocks, snapshot_datablocks
 from .catalog import build_library_index
 from .core import SUPPORTED_TYPES
 from .family_path import resolve_family_class_from_path
@@ -140,20 +141,6 @@ def import_asset(filepath, context):
     return _new_objects(before)
 
 
-def _collect_owned_datablocks(objects):
-    owned = set()
-    for obj in objects:
-        data = getattr(obj, "data", None)
-        if data is not None:
-            owned.add(data)
-            materials = getattr(data, "materials", None)
-            if materials is not None:
-                for material in materials:
-                    if material is not None:
-                        owned.add(material)
-    return owned
-
-
 def _remove_objects(objects):
     unique = []
     seen = set()
@@ -163,30 +150,23 @@ def _remove_objects(objects):
         seen.add(obj)
         unique.append(obj)
 
+    # Leaves first. Removing a child before its parent avoids stale hierarchy
+    # references during long conversion sessions.
     unique.sort(key=lambda obj: len(obj.children_recursive))
     for obj in unique:
         if obj and obj.name in bpy.data.objects:
-            bpy.data.objects.remove(obj, do_unlink=True)
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            except Exception:
+                pass
 
 
-def _remove_owned_datablocks(datablocks):
-    removable = [datablock for datablock in datablocks if datablock is not None and datablock.users == 0]
-    if not removable:
-        return
-
-    try:
-        bpy.data.batch_remove(ids=removable)
-    except Exception:
-        pass
-
-
-def _cleanup_import(imported, root=None, owned_datablocks=None):
+def _cleanup_import(imported, root=None):
     cleanup_objects = list(imported)
-    if root is not None:
+    if root is not None and root.name in bpy.data.objects:
         cleanup_objects.extend(list(root.children_recursive))
         cleanup_objects.append(root)
     _remove_objects(cleanup_objects)
-    _remove_owned_datablocks(owned_datablocks or set())
 
 
 def _prepare_imported(context, imported, auto_split_loose, max_loose_islands):
@@ -221,11 +201,14 @@ def convert_asset(
     max_loose_islands=DEFAULT_MAX_LOOSE_ISLANDS,
 ):
     filepath = Path(filepath)
-    imported = import_asset(filepath, context)
+    object_snapshot = _snapshot_objects()
+    datablock_snapshot = snapshot_datablocks()
+    imported = []
     root = None
-    owned_datablocks = set()
+    result = None
 
     try:
+        imported = import_asset(filepath, context)
         prepared_objects, prepare_report = _prepare_imported(
             context,
             imported,
@@ -236,7 +219,6 @@ def convert_asset(
             if obj not in imported:
                 imported.append(obj)
 
-        owned_datablocks = _collect_owned_datablocks(imported)
         geometry = [obj for obj in prepared_objects if obj.type in SUPPORTED_TYPES]
         if not geometry:
             detail = _unsupported_geometry_detail(prepared_objects)
@@ -266,7 +248,7 @@ def convert_asset(
             export_lods=export_lods and export_glb,
         )
         manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
-        return {
+        result = {
             "source": str(filepath),
             "output_key": key.as_posix(),
             "family_id": family_id,
@@ -287,8 +269,21 @@ def convert_asset(
             "quality": quality_after,
             "needs_review": not bool(quality_after.get("automaticReady", False)),
         }
+        return result
     finally:
-        _cleanup_import(imported, root=root, owned_datablocks=owned_datablocks)
+        # Use the outer object snapshot rather than only `imported`. If a Blender
+        # import operator raises after creating partial objects, those objects are
+        # still captured and removed here.
+        created_objects = _new_objects(object_snapshot)
+        _cleanup_import(created_objects, root=root)
+        cleanup_report = cleanup_new_datablocks(datablock_snapshot)
+        if result is not None:
+            result["cleanup"] = cleanup_report
+            if not cleanup_report.get("complete", False):
+                result["cleanup_warning"] = (
+                    f"{cleanup_report.get('leftoverCount', 0)} post-import Blender datablock(s) "
+                    "remain in use after cleanup"
+                )
 
 
 def _write_json(output_directory, filename, payload):
@@ -318,6 +313,8 @@ def _review_queue_payload(report):
             "geometry_lods": item.get("geometry_lods"),
             "runtime_cost": item.get("runtime_cost"),
             "mobile_budget": item.get("mobile_budget"),
+            "cleanup": item.get("cleanup"),
+            "cleanup_warning": item.get("cleanup_warning"),
             "score": quality.get("score"),
             "automaticReady": quality.get("automaticReady"),
             "roleCoverage": quality.get("roleCoverage"),
@@ -353,6 +350,13 @@ def _finalize_report(output_directory, report):
     )
     report["lod_warnings"] = sum(
         1 for warning in all_export_warnings if str(warning).lower().startswith("lod:")
+    )
+    report["cleanup_warnings"] = sum(
+        1 for item in report.get("results", []) if item.get("cleanup_warning")
+    )
+    report["cleanup_leftover_datablocks"] = sum(
+        int((item.get("cleanup") or {}).get("leftoverCount", 0) or 0)
+        for item in report.get("results", [])
     )
     report["mobile_budget_status_counts"] = dict(sorted(Counter(
         (item.get("mobile_budget") or {}).get("status")
