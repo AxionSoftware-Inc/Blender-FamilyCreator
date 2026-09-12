@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -22,10 +21,6 @@ GPU_FREE_SMOKES = (
 )
 
 
-def _script_args():
-    return sys.argv[1:]
-
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Run Axion Family Creator local validation gates without GitHub Actions."
@@ -39,16 +34,8 @@ def parse_args():
         action="store_true",
         help="Also run tests/blender_runtime/run_all.py, which includes thumbnail rendering.",
     )
-    parser.add_argument(
-        "--skip-pure",
-        action="store_true",
-        help="Skip normal Python unittest discovery.",
-    )
-    parser.add_argument(
-        "--skip-smokes",
-        action="store_true",
-        help="Skip the focused GPU-free Blender smoke suite.",
-    )
+    parser.add_argument("--skip-pure", action="store_true", help="Skip normal Python unittest discovery.")
+    parser.add_argument("--skip-smokes", action="store_true", help="Skip focused GPU-free Blender smokes.")
     parser.add_argument(
         "--real-input",
         help="Optional real-asset corpus directory. Runs run_real_assets.py with --no-thumbnail.",
@@ -76,7 +63,7 @@ def parse_args():
         action="store_true",
         help="Continue after failed gates so the report contains all failures.",
     )
-    return parser.parse_args(_script_args())
+    return parser.parse_args()
 
 
 def resolve_blender(explicit=None):
@@ -125,7 +112,7 @@ def run_command(name, command, expected_marker=None, cwd=REPO_ROOT):
         "markerFound": marker_ok if expected_marker is not None else None,
         "outputTail": output[-12000:],
     }
-    print(f"[{ 'PASS' if passed else 'FAIL' }] {name} ({result['durationSeconds']}s)")
+    print(f"[{'PASS' if passed else 'FAIL'}] {name} ({result['durationSeconds']}s)")
     if not passed:
         print(result["outputTail"])
     return result
@@ -158,6 +145,16 @@ def should_stop(result, keep_going):
     return not result.get("passed", False) and not keep_going
 
 
+def stop_with_report(args, report):
+    report["passed"] = False
+    report["gateCount"] = len(report.get("gates", ()))
+    report["passedCount"] = sum(1 for gate in report.get("gates", ()) if gate.get("passed"))
+    report["failedCount"] = report["gateCount"] - report["passedCount"]
+    report_path = write_report(args.report, report)
+    print(f"Validation report: {report_path}")
+    raise SystemExit(1)
+
+
 def main():
     args = parse_args()
     blender = resolve_blender(args.blender)
@@ -178,33 +175,26 @@ def main():
         )
         report["gates"].append(result)
         if should_stop(result, args.keep_going):
-            report["passed"] = False
-            report_path = write_report(args.report, report)
-            print(f"Validation report: {report_path}")
-            raise SystemExit(1)
+            stop_with_report(args, report)
 
     if not args.skip_smokes:
         for name, script, marker in GPU_FREE_SMOKES:
             result = run_command(name, blender_python_command(blender, script), marker)
             report["gates"].append(result)
             if should_stop(result, args.keep_going):
-                report["passed"] = False
-                report_path = write_report(args.report, report)
-                print(f"Validation report: {report_path}")
-                raise SystemExit(1)
+                stop_with_report(args, report)
 
     if args.full:
+        # run_all.py raises on any runtime test failure. Its JSON footer is
+        # intentionally not treated as a fixed pass-count contract because new
+        # deterministic runtime tests may be added over time.
         result = run_command(
             "full_blender_runtime",
             blender_python_command(blender, "tests/blender_runtime/run_all.py"),
-            "Blender runtime harness: 15/15 passed",
         )
         report["gates"].append(result)
         if should_stop(result, args.keep_going):
-            report["passed"] = False
-            report_path = write_report(args.report, report)
-            print(f"Validation report: {report_path}")
-            raise SystemExit(1)
+            stop_with_report(args, report)
 
     if args.real_input:
         if not args.real_output:
@@ -228,10 +218,7 @@ def main():
         result["hardeningReport"] = str(real_output / "hardening-report.json")
         report["gates"].append(result)
         if should_stop(result, args.keep_going):
-            report["passed"] = False
-            report_path = write_report(args.report, report)
-            print(f"Validation report: {report_path}")
-            raise SystemExit(1)
+            stop_with_report(args, report)
 
         if args.baseline_hardening and result.get("passed"):
             baseline = Path(args.baseline_hardening).expanduser().resolve()
@@ -245,15 +232,13 @@ def main():
                     "--baseline", baseline,
                     "--candidate", candidate,
                     "--output", compare_output,
+                    "--fail-on-regression",
                 ],
             )
             compare["comparisonReport"] = str(compare_output)
             report["gates"].append(compare)
             if should_stop(compare, args.keep_going):
-                report["passed"] = False
-                report_path = write_report(args.report, report)
-                print(f"Validation report: {report_path}")
-                raise SystemExit(1)
+                stop_with_report(args, report)
 
     report["passed"] = all(gate.get("passed", False) for gate in report["gates"])
     report["gateCount"] = len(report["gates"])
