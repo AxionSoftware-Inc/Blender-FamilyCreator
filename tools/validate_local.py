@@ -18,6 +18,7 @@ GPU_FREE_SMOKES = (
     ("batch_cleanup", "tests/blender_runtime/run_cleanup_smoke.py", "CLEANUP_SMOKE: PASS"),
     ("export_state", "tests/blender_runtime/run_export_state_smoke.py", "EXPORT_STATE_SMOKE: PASS"),
     ("mobile_lod", "tests/blender_runtime/run_lod_smoke.py", "LOD_SMOKE: PASS"),
+    ("batch_provenance", "tests/blender_runtime/run_batch_provenance_smoke.py", "BATCH_PROVENANCE_SMOKE: PASS"),
 )
 
 
@@ -185,9 +186,6 @@ def main():
                 stop_with_report(args, report)
 
     if args.full:
-        # run_all.py raises on any runtime test failure. Its JSON footer is
-        # intentionally not treated as a fixed pass-count contract because new
-        # deterministic runtime tests may be added over time.
         result = run_command(
             "full_blender_runtime",
             blender_python_command(blender, "tests/blender_runtime/run_all.py"),
