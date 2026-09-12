@@ -8,7 +8,8 @@ blender --background --factory-startup --python batch_cli.py -- \
   --class AUTO_FOLDER \
   --recursive \
   --lods \
-  --no-thumbnails
+  --no-thumbnails \
+  --strict
 """
 
 from __future__ import annotations
@@ -49,6 +50,14 @@ def parse_args():
     parser.add_argument("--no-auto-split", action="store_true", help="Disable conservative loose-part splitting")
     parser.add_argument("--max-loose-islands", type=int, default=32)
     parser.add_argument("--stop-on-error", action="store_true", help="Abort after the first failed asset")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Exit non-zero if conversion failures, cleanup leftovers, missing library assets "
+            "or an incomplete library audit remain"
+        ),
+    )
     parser.add_argument("--json-summary", help="Optional compact summary output path")
     return parser.parse_args(_script_args())
 
@@ -96,6 +105,29 @@ def _summary(report):
     }
 
 
+def _strict_failures(summary):
+    failures = []
+    if summary["failed"]:
+        failures.append(f"{summary['failed']} conversion failure(s)")
+    if summary["cleanupWarnings"] or summary["cleanupLeftoverDatablocks"]:
+        failures.append(
+            f"cleanup warnings={summary['cleanupWarnings']}, "
+            f"leftover datablocks={summary['cleanupLeftoverDatablocks']}"
+        )
+    missing = summary.get("libraryMissingAssetCount")
+    if isinstance(missing, int) and missing > 0:
+        failures.append(f"{missing} missing library asset(s)")
+    if summary.get("libraryIndexError"):
+        failures.append(f"library index error: {summary['libraryIndexError']}")
+    if summary.get("libraryAuditError"):
+        failures.append(f"library audit error: {summary['libraryAuditError']}")
+    if summary.get("libraryAuditComplete") is False:
+        failures.append(
+            f"library audit incomplete ({summary.get('libraryAuditWarningCount', 0)} warning(s))"
+        )
+    return failures
+
+
 def main():
     args = parse_args()
     input_directory = Path(args.input).expanduser().resolve()
@@ -106,13 +138,20 @@ def main():
 
     addon = load_addon()
     batch_module = importlib.import_module(f"{ADDON_NAME}.batch")
+    family_types_module = importlib.import_module(f"{ADDON_NAME}.family_types")
+    requested_class = str(args.family_class).strip().upper()
+    allowed_classes = set(family_types_module.FAMILY_TYPES)
+    if requested_class != batch_module.AUTO_FOLDER_CLASS and requested_class not in allowed_classes:
+        choices = ", ".join([batch_module.AUTO_FOLDER_CLASS] + sorted(allowed_classes))
+        raise SystemExit(f"Unknown Family Class '{requested_class}'. Allowed: {choices}")
+
     addon.register()
     try:
         report = batch_module.batch_convert_directory(
             bpy.context,
             input_directory,
             output_directory,
-            str(args.family_class).upper(),
+            requested_class,
             recursive=bool(args.recursive),
             export_glb=not args.no_glb,
             export_baked_types=not args.no_baked_types,
@@ -150,6 +189,14 @@ def main():
 
         if summary["failed"] and args.stop_on_error:
             raise SystemExit(2)
+        if args.strict:
+            strict_failures = _strict_failures(summary)
+            if strict_failures:
+                print("STRICT CHECK FAILED:")
+                for failure in strict_failures:
+                    print(f"- {failure}")
+                raise SystemExit(3)
+            print("Strict integrity check: PASS")
     finally:
         try:
             addon.unregister()
