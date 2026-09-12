@@ -17,7 +17,7 @@ def _mesh_cost(obj, depsgraph):
             mesh = None
 
         if mesh is None:
-            return {"vertices": 0, "triangles": 0, "materialSlots": 0}
+            return {"vertices": 0, "triangles": 0, "materialSlots": 0, "drawCallEstimate": 0}
 
         try:
             mesh.calc_loop_triangles()
@@ -28,10 +28,12 @@ def _mesh_cost(obj, depsgraph):
 
         vertices = len(getattr(mesh, "vertices", ()))
         material_slots = len(getattr(mesh, "materials", ()))
+        draw_calls = max(1, material_slots) if triangles > 0 else 0
         return {
             "vertices": int(vertices),
             "triangles": int(triangles),
             "materialSlots": int(material_slots),
+            "drawCallEstimate": int(draw_calls),
         }
     finally:
         if mesh is not None and evaluated is not None:
@@ -39,6 +41,100 @@ def _mesh_cost(obj, depsgraph):
                 evaluated.to_mesh_clear()
             except Exception:
                 pass
+
+
+def _material_key(material):
+    try:
+        return int(material.as_pointer())
+    except Exception:
+        return id(material)
+
+
+def _node_tree_key(tree):
+    try:
+        return int(tree.as_pointer())
+    except Exception:
+        return id(tree)
+
+
+def _image_key(image):
+    try:
+        return int(image.as_pointer())
+    except Exception:
+        return id(image)
+
+
+def _iter_node_tree_images(node_tree, visited=None):
+    if node_tree is None:
+        return
+    visited = visited if visited is not None else set()
+    key = _node_tree_key(node_tree)
+    if key in visited:
+        return
+    visited.add(key)
+
+    for node in getattr(node_tree, "nodes", ()):
+        image = getattr(node, "image", None)
+        if image is not None:
+            yield image
+        child_tree = getattr(node, "node_tree", None)
+        if child_tree is not None:
+            yield from _iter_node_tree_images(child_tree, visited)
+
+
+def _material_and_texture_cost(members):
+    materials = {}
+    images = {}
+
+    for obj in members:
+        data = getattr(obj, "data", None)
+        slots = getattr(data, "materials", None)
+        if slots is None:
+            continue
+        for material in slots:
+            if material is None:
+                continue
+            materials[_material_key(material)] = material
+
+    for material in materials.values():
+        node_tree = getattr(material, "node_tree", None)
+        for image in _iter_node_tree_images(node_tree):
+            images[_image_key(image)] = image
+
+    texture_records = []
+    total_pixels = 0
+    total_rgba_bytes = 0
+    max_dimension = 0
+    for image in images.values():
+        try:
+            width = max(int(image.size[0]), 0)
+            height = max(int(image.size[1]), 0)
+        except Exception:
+            width = 0
+            height = 0
+        pixels = width * height
+        rgba_bytes = pixels * 4
+        total_pixels += pixels
+        total_rgba_bytes += rgba_bytes
+        max_dimension = max(max_dimension, width, height)
+        texture_records.append({
+            "name": str(getattr(image, "name", "")),
+            "width": width,
+            "height": height,
+            "pixels": pixels,
+            "estimatedBytesRGBA": rgba_bytes,
+        })
+
+    texture_records.sort(key=lambda item: item["name"].lower())
+    return {
+        "uniqueMaterials": len(materials),
+        "textureCount": len(images),
+        "texturePixels": int(total_pixels),
+        "maxTextureDimension": int(max_dimension),
+        "estimatedTextureBytesRGBA": int(total_rgba_bytes),
+        "estimatedTextureMemoryMiB": round(float(total_rgba_bytes) / (1024.0 * 1024.0), 3),
+        "textures": texture_records,
+    }
 
 
 def family_runtime_cost(root):
@@ -54,13 +150,14 @@ def family_runtime_cost(root):
     total_vertices = 0
     total_triangles = 0
     material_slots = 0
+    draw_call_estimate = 0
     mesh_objects = 0
     non_mesh_objects = 0
     members_cost = []
 
     for obj in members:
         if depsgraph is None:
-            cost = {"vertices": 0, "triangles": 0, "materialSlots": 0}
+            cost = {"vertices": 0, "triangles": 0, "materialSlots": 0, "drawCallEstimate": 0}
         else:
             cost = _mesh_cost(obj, depsgraph)
         if cost["triangles"] or getattr(obj, "type", None) == "MESH":
@@ -70,20 +167,25 @@ def family_runtime_cost(root):
         total_vertices += cost["vertices"]
         total_triangles += cost["triangles"]
         material_slots += cost["materialSlots"]
+        draw_call_estimate += cost["drawCallEstimate"]
         members_cost.append({
             "name": str(getattr(obj, "name", "")),
             "role": str(getattr(obj, "bfc_member_role", "UNKNOWN") or "UNKNOWN"),
             **cost,
         })
 
+    resource_cost = _material_and_texture_cost(members)
     cost = {
         "measurement": "EVALUATED_TRIANGULATED_GEOMETRY",
+        "textureMemoryEstimate": "UNCOMPRESSED_RGBA8",
         "memberCount": len(members),
         "meshObjects": mesh_objects,
         "nonMeshObjects": non_mesh_objects,
         "vertices": total_vertices,
         "triangles": total_triangles,
         "materialSlots": material_slots,
+        "drawCallEstimate": draw_call_estimate,
+        **resource_cost,
         "members": members_cost,
     }
     family_kind = getattr(root, "bfc_family_kind", "GENERIC")
