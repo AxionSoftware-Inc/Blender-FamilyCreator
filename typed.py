@@ -11,6 +11,7 @@ from .family_types.strategies import (
     refine_member_roles,
 )
 from .generators import rebuild_family_geometry, supports_generation
+from .geometry_export import export_glb_geometry
 from .hierarchy import create_family_preserving_hierarchy
 from .hosting import hosting_metadata
 from .lod import export_family_lods
@@ -319,6 +320,10 @@ def _thumbnail_path(directory, root):
     return Path(directory) / f"{core.slugify(root.bfc_family_name)}.thumbnail.png"
 
 
+def _primary_glb_path(directory, root):
+    return Path(directory) / f"{core.slugify(root.bfc_family_name)}.glb"
+
+
 def export_typed_family(
     root,
     directory,
@@ -328,15 +333,27 @@ def export_typed_family(
     export_lods=False,
     thumbnail_size=DEFAULT_THUMBNAIL_SIZE,
 ):
-    manifest_path, glb_path = core.export_family(root, directory, export_glb)
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data.update(typed_manifest_metadata(root))
-    _inject_member_roles(root, data)
-
+    manifest_path = None
+    glb_path = None
     variant_files = []
     lod_files = []
     thumbnail_path = None
+
     try:
+        # Base manifest creation and the primary GLB now belong to the same
+        # transaction. A failed primary GLB export cannot leave a discoverable
+        # half-package behind.
+        manifest_path, _ = core.export_family(root, directory, export_glb=False)
+        if export_glb:
+            glb_path = _primary_glb_path(directory, root)
+            export_glb_geometry(root, glb_path)
+            if not glb_path.exists() or glb_path.stat().st_size <= 0:
+                raise RuntimeError("Primary GLB export did not create a non-empty file")
+
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        data.update(typed_manifest_metadata(root))
+        _inject_member_roles(root, data)
+
         if glb_path is not None:
             variant_result = export_baked_type_variants(
                 root,
