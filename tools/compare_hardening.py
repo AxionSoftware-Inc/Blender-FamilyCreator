@@ -6,6 +6,10 @@ python tools/compare_hardening.py \
   --baseline D:\\baseline\\hardening-report.json \
   --candidate D:\\expanded\\hardening-report.json \
   --output D:\\expanded\\hardening-compare.json
+
+By default the CLI is informational and exits successfully after writing the
+comparison. Use --fail-on-regression in automation/local validation to return a
+non-zero exit when the golden-overlap no-regression gate fails.
 """
 
 from __future__ import annotations
@@ -28,6 +32,11 @@ def parse_args():
     parser.add_argument("--baseline", required=True, help="Previous/golden hardening-report.json")
     parser.add_argument("--candidate", required=True, help="New/expanded hardening-report.json")
     parser.add_argument("--output", help="Optional JSON output path; defaults beside candidate")
+    parser.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help="Exit 2 when the golden-overlap no-regression gate fails",
+    )
     return parser.parse_args()
 
 
@@ -44,6 +53,7 @@ def main():
         if args.output
         else candidate_path.with_name("hardening-compare.json")
     )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     result = compare_hardening_reports(load_json(baseline_path), load_json(candidate_path))
     output_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -83,6 +93,9 @@ def main():
             print(f"  {key}")
             for source in sources:
                 print(f"    {source}")
+
+    if args.fail_on_regression and not gate.get("passesNoRegressionGate", False):
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
