@@ -114,6 +114,7 @@ def export_baked_type_variants(
     other_names = [name for name in saved_types if name != active_name]
     filenames = _variant_filenames(other_names)
     variants_dir = directory / "variants"
+    pending_path = None
 
     try:
         for type_name in other_names:
@@ -126,8 +127,12 @@ def export_baked_type_variants(
             )
 
             variant_path = variants_dir / filenames[type_name]
+            pending_path = variant_path
             export_glb_geometry(root, variant_path)
+            if not variant_path.exists() or variant_path.stat().st_size <= 0:
+                raise RuntimeError(f"Type variant '{type_name}' did not create a non-empty GLB")
             created_files.append(variant_path)
+            pending_path = None
             variants[type_name] = {
                 "uri": variant_path.relative_to(directory).as_posix(),
                 "baked": True,
@@ -135,7 +140,10 @@ def export_baked_type_variants(
                 "generatorChanged": bool(generator_result and generator_result.get("changed")),
             }
     except Exception:
-        for path in created_files:
+        cleanup_paths = list(created_files)
+        if pending_path is not None:
+            cleanup_paths.append(pending_path)
+        for path in cleanup_paths:
             try:
                 path.unlink(missing_ok=True)
             except Exception:
