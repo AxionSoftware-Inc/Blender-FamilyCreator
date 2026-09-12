@@ -15,7 +15,9 @@ library/
   library-audit.json
 ```
 
-`library-index.json` is rebuilt by Batch Family Factory. `library-audit.json` verifies that files referenced by manifests actually exist inside the same library root.
+`library-index.json` is rebuilt by Batch Family Factory. `library-audit.json`
+verifies that files referenced by manifests actually exist inside the same
+library root.
 
 ## Library index
 
@@ -38,9 +40,26 @@ Current index contract:
     "OVER_TARGET": 10,
     "OVER_HARD_LIMIT": 2
   },
+  "familiesOverMobileTarget": 10,
+  "familiesOverMobileHardLimit": 2,
+  "runtimeCostSummary": {
+    "measuredFamilies": 42,
+    "totalTriangles": 6200000,
+    "maxFamilyTriangles": 580000,
+    "totalDrawCallEstimate": 310,
+    "maxFamilyDrawCallEstimate": 24,
+    "totalEstimatedTextureMemoryMiB": 1240.5,
+    "maxFamilyEstimatedTextureMemoryMiB": 128.0,
+    "maxTextureDimension": 8192
+  },
   "families": []
 }
 ```
+
+`runtimeCostSummary` is a production-planning diagnostic. Summing texture memory
+across an entire library does **not** mean every texture will be resident at the
+same time on a device; it is useful for comparing library revisions and finding
+heavy outliers.
 
 Each family entry can include:
 
@@ -59,15 +78,77 @@ Each family entry can include:
 - host type for hosted families;
 - selection-proxy size and plan footprint;
 - runtime triangle/vertex/material-slot cost;
-- mobile budget status and suggested LOD ratios;
+- unique material count and estimated draw calls;
+- texture count, maximum texture dimension and estimated uncompressed RGBA
+  texture memory;
+- mobile budget policy/status and suggested geometry LOD ratios;
 - source key for batch traceability;
 - `assetsComplete` and optional `assetWarnings`.
 
-All runtime asset paths are library-root-relative. A manifest URI that resolves outside the library root is never surfaced as a usable catalog asset.
+Example compact runtime cost entry:
+
+```json
+{
+  "runtimeCost": {
+    "triangles": 124000,
+    "vertices": 68000,
+    "materialSlots": 7,
+    "uniqueMaterials": 5,
+    "drawCallEstimate": 9,
+    "textureCount": 6,
+    "maxTextureDimension": 4096,
+    "estimatedTextureMemoryMiB": 80.0,
+    "memberCount": 12
+  },
+  "mobileBudget": {
+    "policyVersion": 2,
+    "status": "OVER_TARGET",
+    "sourceTriangles": 124000,
+    "sourceDrawCallEstimate": 9,
+    "sourceMaxTextureDimension": 4096,
+    "sourceTextureMemoryMiB": 80.0,
+    "suggestedLod1Ratio": 0.4435,
+    "suggestedLod2Ratio": 0.0806
+  }
+}
+```
+
+Mobile status is intentionally separate from semantic readiness. A family can be
+`automaticReady=true` while `mobileBudget.status=OVER_TARGET` because its
+geometry, material/draw-call cost, texture resolution or estimated texture
+memory needs runtime optimization.
+
+LOD ratios address **geometry only**. A family that is over budget only because
+of textures/materials can legitimately have a suggested LOD ratio of `1.0`; the
+fix in that case is texture/material optimization rather than mesh decimation.
+
+All runtime asset paths are library-root-relative. A manifest URI that resolves
+outside the library root is never surfaced as a usable catalog asset.
+
+## LOD catalog records
+
+When present, each LOD record can expose:
+
+```json
+{
+  "LOD1": {
+    "uri": "chair/A/lod/lod1.glb",
+    "generated": true,
+    "triangles": 39000,
+    "targetTriangles": 40000,
+    "meetsTarget": true
+  }
+}
+```
+
+This lets the mobile browser make a lightweight choice without opening every
+family manifest.
 
 ## Asset warnings
 
-A valid semantic manifest is not discarded merely because a copied library package is incomplete. Instead the entry remains discoverable and exposes warnings such as:
+A valid semantic manifest is not discarded merely because a copied library
+package is incomplete. Instead the entry remains discoverable and exposes
+warnings such as:
 
 ```json
 {
@@ -83,11 +164,13 @@ A valid semantic manifest is not discarded merely because a copied library packa
 }
 ```
 
-This lets production tooling distinguish semantic rejection from packaging/copy failures.
+This lets production tooling distinguish semantic rejection from packaging/copy
+failures.
 
 ## Rejected manifests
 
-`rejectedManifests` contains manifests that cannot become catalog entries, for example:
+`rejectedManifests` contains manifests that cannot become catalog entries, for
+example:
 
 - invalid JSON;
 - unsupported schema/version;
@@ -98,7 +181,8 @@ Duplicate IDs are rejected rather than silently selecting the last file.
 
 ## Library audit
 
-`library_audit.py` performs a second, read-only integrity pass over all family manifests.
+`library_audit.py` performs a second, read-only integrity pass over all family
+manifests.
 
 Output:
 
@@ -129,6 +213,18 @@ The audit checks:
 
 It never deletes or repairs files automatically.
 
+## Batch cleanup health
+
+`batch-report.json` additionally exposes cleanup health from the Blender batch
+process:
+
+- `cleanup_warnings` — converted assets whose post-import cleanup left IDs in use;
+- `cleanup_leftover_datablocks` — total remaining post-snapshot Blender IDs;
+- per-result `cleanup` records with removed/leftover counts by datablock type.
+
+Cleanup is snapshot-scoped. It does **not** run Blender's global orphan purge, so
+unrelated zero-user data that existed before an asset conversion is not deleted.
+
 ## Command-line audit
 
 ```powershell
@@ -137,17 +233,20 @@ python tools/audit_library.py `
   --fail-on-warning
 ```
 
-Without `--fail-on-warning`, warnings are reported but the command remains informational.
+Without `--fail-on-warning`, warnings are reported but the command remains
+informational.
 
 ## Mobile runtime usage
 
 Recommended runtime flow:
 
 1. load `library-index.json` once;
-2. filter by Family Class, quality/capabilities and user search;
-3. read proxy/footprint for lightweight preview/placement;
-4. choose LOD URI according to device/distance;
-5. load the selected family manifest only when richer semantic detail is needed;
-6. surface review/incomplete-package state to production tools, not end users.
+2. filter by Family Class, semantic quality/capabilities and user search;
+3. use runtime-cost summaries to avoid loading unsuitable heavy candidates;
+4. read proxy/footprint for lightweight preview/placement;
+5. choose an LOD URI according to device, screen size and distance;
+6. load the selected family manifest only when richer semantic detail is needed;
+7. surface review/incomplete-package state to production tools, not end users.
 
-The index is a discovery cache; the family manifest remains the authoritative per-family semantic contract.
+The index is a discovery cache; the family manifest remains the authoritative
+per-family semantic contract.
