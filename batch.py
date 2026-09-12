@@ -271,19 +271,46 @@ def convert_asset(
         }
         return result
     finally:
-        # Use the outer object snapshot rather than only `imported`. If a Blender
-        # import operator raises after creating partial objects, those objects are
-        # still captured and removed here.
-        created_objects = _new_objects(object_snapshot)
-        _cleanup_import(created_objects, root=root)
-        cleanup_report = cleanup_new_datablocks(datablock_snapshot)
+        # Cleanup is intentionally best-effort and must never mask the real
+        # import/export result. In particular, if an importer raises after
+        # creating partial objects, preserve that original exception even if a
+        # later cleanup diagnostic also encounters an unsupported datablock.
+        cleanup_error = None
+        cleanup_report = None
+        try:
+            created_objects = _new_objects(object_snapshot)
+            _cleanup_import(created_objects, root=root)
+        except Exception as exc:
+            cleanup_error = f"Object cleanup failed: {exc}"
+
+        try:
+            cleanup_report = cleanup_new_datablocks(datablock_snapshot)
+        except Exception as exc:
+            message = f"Datablock cleanup failed: {exc}"
+            cleanup_error = f"{cleanup_error}; {message}" if cleanup_error else message
+
         if result is not None:
+            if cleanup_report is None:
+                cleanup_report = {
+                    "passes": 0,
+                    "removed": {},
+                    "removedCount": 0,
+                    "leftovers": {},
+                    "leftoverCount": 0,
+                    "complete": False,
+                }
             result["cleanup"] = cleanup_report
+
+            warning_parts = []
+            if cleanup_error:
+                warning_parts.append(cleanup_error)
             if not cleanup_report.get("complete", False):
-                result["cleanup_warning"] = (
+                warning_parts.append(
                     f"{cleanup_report.get('leftoverCount', 0)} post-import Blender datablock(s) "
                     "remain in use after cleanup"
                 )
+            if warning_parts:
+                result["cleanup_warning"] = "; ".join(warning_parts)
 
 
 def _write_json(output_directory, filename, payload):
