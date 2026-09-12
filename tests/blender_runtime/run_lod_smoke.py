@@ -63,6 +63,17 @@ def main():
         bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=7, radius=1.0, location=(0.0, 0.0, 1.0))
         source = bpy.context.object
         source.name = "Body"
+
+        # Exercise a common vendor-file pattern: many retained material slots,
+        # while geometry actually uses only one material index. Runtime cost
+        # should preserve materialSlots=5 for authoring diagnostics but estimate
+        # only one draw submission for this mesh.
+        for index in range(5):
+            material = bpy.data.materials.new(f"UnusedSlot_{index}")
+            source.data.materials.append(material)
+        for polygon in source.data.polygons:
+            polygon.material_index = 0
+
         source_polygons = len(source.data.polygons)
         source_mesh = source.data
 
@@ -89,6 +100,7 @@ def main():
             )
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
             lods = data.get("geometryLods", {})
+            runtime_cost = data.get("runtimeCost", {})
 
             assert_true(glb_path is not None and Path(glb_path).is_file(), "LOD smoke primary GLB missing")
             assert_true(set(lods) == {"LOD0", "LOD1", "LOD2"}, f"Unexpected LOD levels: {list(lods)}")
@@ -102,7 +114,10 @@ def main():
                 lod_path = output / uri
                 assert_true(lod_path.is_file() and lod_path.stat().st_size > 0, f"{level} GLB missing")
 
-            assert_true(data.get("runtimeCost", {}).get("triangles", 0) > 180000, "Smoke model did not exceed Generic mobile target")
+            assert_true(runtime_cost.get("triangles", 0) > 180000, "Smoke model did not exceed Generic mobile target")
+            assert_true(runtime_cost.get("materialSlots") == 5, f"Expected five material slots: {runtime_cost}")
+            assert_true(runtime_cost.get("uniqueMaterials") == 5, f"Expected five unique materials: {runtime_cost}")
+            assert_true(runtime_cost.get("drawCallEstimate") == 1, f"Unused slots inflated draw calls: {runtime_cost}")
             assert_true(data.get("mobileBudget", {}).get("status") == "OVER_TARGET", "Unexpected mobile budget status")
 
             library_root = Path(tmp) / "library"
