@@ -1,5 +1,6 @@
 import json
 import re
+from itertools import permutations
 from pathlib import Path
 
 import bpy
@@ -229,6 +230,53 @@ def anchored_coordinate(value, base_size, ratio, anchor_mode="CENTER"):
     return anchor + (float(value) - anchor) * float(ratio)
 
 
+def _best_local_to_family_axis_map(rotation_matrix):
+    """Return a 1:1 local-axis -> family-axis mapping with maximum alignment.
+
+    Applying a diagonal family-axis scale by matrix multiplication introduces
+    shear when a member is rotated away from the family axes. Instead, keep the
+    member's canonical rotation and assign each local axis to the family axis it
+    represents most closely. The six possible 3D permutations are cheap to
+    score and guarantee a one-to-one mapping, including 90-degree rotations.
+    """
+    rotation = rotation_matrix.to_3x3()
+    scores = [
+        [abs(float(rotation[family_axis][local_axis])) for family_axis in range(3)]
+        for local_axis in range(3)
+    ]
+    best = (0, 1, 2)
+    best_score = -1.0
+    for assignment in permutations(range(3)):
+        score = sum(scores[local_axis][assignment[local_axis]] for local_axis in range(3))
+        if score > best_score:
+            best_score = score
+            best = assignment
+    return best
+
+
+def _stretch_basis_without_shear(base_matrix, stretch):
+    """Apply family stretch ratios while preserving canonical member rotation.
+
+    The old `family_scale @ rotated_basis` path can create a sheared transform.
+    Rebuilding the matrix from decomposed location/rotation/local scale keeps
+    the basis orthogonal. At the unmodified 1:1 state the exact captured basis
+    is returned, avoiding needless decomposition drift.
+    """
+    if all(abs(float(value) - 1.0) <= 1e-9 for value in stretch):
+        basis = base_matrix.copy()
+        basis.translation = Vector((0.0, 0.0, 0.0))
+        return basis
+
+    _location, rotation, base_scale = base_matrix.decompose()
+    local_to_family = _best_local_to_family_axis_map(rotation.to_matrix())
+    scaled = Vector((
+        float(base_scale[local_axis]) * float(stretch[local_to_family[local_axis]])
+        for local_axis in range(3)
+    ))
+    matrix = Matrix.LocRotScale(Vector((0.0, 0.0, 0.0)), rotation, scaled)
+    return matrix
+
+
 def apply_family(root):
     if not root or not bool(root.get(FAMILY_FLAG, False)):
         return
@@ -242,8 +290,6 @@ def apply_family(root):
         for obj in family_members(root):
             base_matrix = list_to_matrix(obj.get(BASE_MATRIX))
             base_loc = base_matrix.to_translation()
-            basis = base_matrix.copy()
-            basis.translation = Vector((0.0, 0.0, 0.0))
 
             rules = [obj.bfc_rule_x, obj.bfc_rule_y, obj.bfc_rule_z]
             rules = [rule if rule in RULES else "FIXED" for rule in rules]
@@ -261,8 +307,7 @@ def apply_family(root):
                 if rule == "STRETCH":
                     stretch[i] = ratios[i]
 
-            stretch_matrix = Matrix.Diagonal(Vector((stretch[0], stretch[1], stretch[2], 1.0)))
-            new_matrix = stretch_matrix @ basis
+            new_matrix = _stretch_basis_without_shear(base_matrix, stretch)
             new_matrix.translation = new_loc
             obj.matrix_world = root.matrix_world @ new_matrix
     finally:
@@ -433,19 +478,26 @@ def export_family(root, directory, export_glb=True):
     glb_path = None
     if export_glb:
         glb_path = directory / f"{family_id}.glb"
-        members = exportable_family_members(root)
-        if not members:
-            raise ValueError("Family has no exportable members")
-
         previous_selection = list(bpy.context.selected_objects)
         previous_active = bpy.context.view_layer.objects.active
+        previous_visibility = {}
+        export_members = exportable_family_members(root)
         try:
             bpy.ops.object.select_all(action="DESELECT")
-            for obj in members:
-                obj.hide_set(False)
+            for obj in export_members:
+                previous_visibility[obj] = (
+                    bool(getattr(obj, "hide_viewport", False)),
+                    bool(getattr(obj, "hide_render", False)),
+                )
+                try:
+                    obj.hide_set(False)
+                except Exception:
+                    pass
+                obj.hide_viewport = False
                 obj.hide_render = False
                 obj.select_set(True)
-            bpy.context.view_layer.objects.active = members[0]
+            if export_members:
+                bpy.context.view_layer.objects.active = export_members[0]
             bpy.ops.export_scene.gltf(
                 filepath=str(glb_path),
                 export_format="GLB",
@@ -457,6 +509,10 @@ def export_family(root, directory, export_glb=True):
             )
         finally:
             bpy.ops.object.select_all(action="DESELECT")
+            for obj, (hide_viewport, hide_render) in previous_visibility.items():
+                if obj and obj.name in bpy.data.objects:
+                    obj.hide_viewport = hide_viewport
+                    obj.hide_render = hide_render
             for obj in previous_selection:
                 if obj and obj.name in bpy.data.objects:
                     obj.select_set(True)
