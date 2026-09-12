@@ -83,7 +83,9 @@ def render_family_thumbnail(root, filepath, size=DEFAULT_THUMBNAIL_SIZE):
     """Render a square transparent family preview without changing authoring state.
 
     This is intentionally an optional library-production feature. Callers should
-    treat failures as warnings rather than family-export failures.
+    treat failures as warnings rather than family-export failures. A failed
+    render is also responsible for deleting any partially written output file so
+    package staging can never commit an unreferenced corrupt thumbnail.
     """
     scene = bpy.context.scene
     members = core.exportable_family_members(root)
@@ -186,6 +188,12 @@ def render_family_thumbnail(root, filepath, size=DEFAULT_THUMBNAIL_SIZE):
             "format": "PNG",
             "transparent": True,
         }
+    except Exception:
+        try:
+            filepath.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
     finally:
         for obj, hidden in visibility.items():
             if obj and obj.name in bpy.data.objects:
