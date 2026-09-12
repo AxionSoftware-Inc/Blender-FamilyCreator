@@ -5,7 +5,7 @@ Checks:
 - canonical rotation is preserved;
 - repeated apply is idempotent;
 - 90-degree axis mapping is correct;
-- canonical source shear is detected by Preflight;
+- canonical source shear is detected and preserved, not silently normalized;
 - multiple separated asset clusters are routed to review.
 
 Run from repository root with Blender 5.2:
@@ -63,15 +63,22 @@ def column(matrix3, index):
     return Vector((matrix3[0][index], matrix3[1][index], matrix3[2][index]))
 
 
-def assert_no_shear(matrix, tolerance=1e-6):
+def shear_measure(matrix):
     matrix3 = matrix.to_3x3()
     axes = [column(matrix3, index) for index in range(3)]
     for axis in axes:
-        assert_true(axis.length > 1e-9, "Degenerate transform axis")
+        if axis.length <= 1e-12:
+            return 0.0
         axis.normalize()
-    for left, right in ((0, 1), (0, 2), (1, 2)):
-        dot = abs(float(axes[left].dot(axes[right])))
-        assert_true(dot <= tolerance, f"Transform contains shear: normalized dot={dot}")
+    return max(
+        abs(float(axes[left].dot(axes[right])))
+        for left, right in ((0, 1), (0, 2), (1, 2))
+    )
+
+
+def assert_no_shear(matrix, tolerance=1e-6):
+    value = shear_measure(matrix)
+    assert_true(value <= tolerance, f"Transform contains shear: normalized dot={value}")
 
 
 def matrix_close(left, right, tolerance=1e-6):
@@ -166,6 +173,28 @@ def test_preflight_shear(addon):
     count = int(preflight.get("stats", {}).get("shearedTransformMembers", 0) or 0)
     assert_true(count == 1, f"Expected one sheared source member, got {count}")
     assert_true(preflight.get("reviewRecommended") is True, "Sheared source was not routed to review")
+
+    canonical = root_local_matrix(root, member).copy()
+    canonical_shear = shear_measure(canonical)
+    assert_true(canonical_shear > 0.1, f"Synthetic source did not retain expected shear: {canonical_shear}")
+
+    member.bfc_rule_x = "STRETCH"
+    member.bfc_rule_y = "FIXED"
+    member.bfc_rule_z = "FIXED"
+    root["bfc_applying"] = True
+    try:
+        root.bfc_width = root.bfc_base_width * 1.6
+    finally:
+        root["bfc_applying"] = False
+    addon.core.apply_family(root)
+    bpy.context.view_layer.update()
+
+    resized = root_local_matrix(root, member)
+    resized_shear = shear_measure(resized)
+    assert_true(
+        abs(resized_shear - canonical_shear) <= 1e-6,
+        f"Existing source shear angle changed during stretch: {canonical_shear} -> {resized_shear}",
+    )
 
 
 def test_spatial_multi_asset_review(addon):
