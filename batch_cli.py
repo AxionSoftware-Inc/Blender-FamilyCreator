@@ -77,6 +77,8 @@ def _summary(report):
         "needsReview": int(report.get("needs_review", 0) or 0),
         "thumbnailWarnings": int(report.get("thumbnail_warnings", 0) or 0),
         "lodWarnings": int(report.get("lod_warnings", 0) or 0),
+        "cleanupWarnings": int(report.get("cleanup_warnings", 0) or 0),
+        "cleanupLeftoverDatablocks": int(report.get("cleanup_leftover_datablocks", 0) or 0),
         "mobileBudgetStatusCounts": report.get("mobile_budget_status_counts", {}),
         "resolvedClassCounts": report.get("resolved_class_counts", {}),
         "batchReport": report.get("report_path"),
@@ -131,6 +133,8 @@ def main():
         print(f"Automatic ready: {summary['automaticReady']}")
         print(f"Needs review: {summary['needsReview']}")
         print(f"LOD warnings: {summary['lodWarnings']}")
+        print(f"Cleanup warnings: {summary['cleanupWarnings']}")
+        print(f"Cleanup leftover datablocks: {summary['cleanupLeftoverDatablocks']}")
         print(f"Mobile budgets: {summary['mobileBudgetStatusCounts']}")
         print(f"Library families: {summary['libraryFamilyCount']}")
         print(f"Library missing assets: {summary['libraryMissingAssetCount']}")
