@@ -8,6 +8,7 @@ Checks:
 - alternating another input scope does not erase the first scope's provenance;
 - a current refresh failure preserves the old valid package and reports it as a
   failed-refresh retained package;
+- rejected catalog manifests preserve the previous provenance baseline;
 - a corrupt canonical source registry is reported and preserved byte-for-byte
   rather than silently replaced by the next successful conversion.
 
@@ -209,6 +210,44 @@ def main():
 
             final_registry = json.loads(source_index_path.read_text(encoding="utf-8"))
             assert_true(final_registry.get("scopeCount") == 2, f"Final registry lost a scope: {final_registry}")
+
+            # A structurally invalid pre-existing package makes catalog identity
+            # incomplete. Do not advance the canonical source baseline from such
+            # a run even if the current source conversion itself succeeds.
+            rejected_baseline = source_index_path.read_bytes()
+            invalid_package = output / "broken"
+            invalid_package.mkdir(parents=True, exist_ok=True)
+            invalid_manifest = invalid_package / "broken.family.json"
+            invalid_manifest.write_text(
+                json.dumps({
+                    "schema": "axion.family",
+                    "schemaVersion": 2,
+                    "familyId": "axion:generic:broken",
+                    "familyKind": "GENERIC",
+                    "name": "Broken",
+                }),
+                encoding="utf-8",
+            )
+            rejected_run = run_batch(addon, source, output)
+            assert_true(rejected_run.get("failed") == 0, f"Conversion should still succeed: {rejected_run}")
+            assert_true(
+                rejected_run.get("library_rejected_manifest_count") == 1,
+                f"Invalid package was not rejected by catalog: {rejected_run}",
+            )
+            assert_true(
+                rejected_run.get("source_index_updated") is False,
+                f"Rejected catalog unexpectedly advanced source provenance: {rejected_run}",
+            )
+            assert_true(
+                rejected_run.get("source_index_diagnostic_skipped_reason") == "LIBRARY_INDEX_REJECTED_MANIFESTS",
+                f"Rejected catalog skip reason missing: {rejected_run}",
+            )
+            assert_true(
+                source_index_path.read_bytes() == rejected_baseline,
+                "Rejected catalog run overwrote source registry",
+            )
+            invalid_manifest.unlink()
+            invalid_package.rmdir()
 
             # Corrupt the canonical registry itself. The next conversion may
             # still refresh family packages, but provenance must not be silently
