@@ -2,6 +2,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from package_assets import safe_relative_asset_uri
+
 
 AUDIT_SCHEMA = "axion.family.library.audit"
 AUDIT_VERSION = 1
@@ -22,13 +24,10 @@ def _relative(path, root):
 
 
 def _resolve_uri(manifest_path, root, uri):
-    try:
-        uri_path = Path(str(uri))
-    except Exception:
+    safe_uri = safe_relative_asset_uri(uri)
+    if safe_uri is None:
         return None
-    if uri_path.is_absolute():
-        return None
-    resolved = (Path(manifest_path).parent / uri_path).resolve()
+    resolved = (Path(manifest_path).parent / Path(safe_uri)).resolve()
     try:
         resolved.relative_to(Path(root).resolve())
     except ValueError:
