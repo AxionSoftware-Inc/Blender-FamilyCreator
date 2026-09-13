@@ -2,7 +2,10 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
+try:
+    from .package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
+except ImportError:  # Pure-Python tests import this module from repo root.
+    from package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
 
 
 CATALOG_SCHEMA = "axion.family.library"
