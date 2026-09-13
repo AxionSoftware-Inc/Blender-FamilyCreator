@@ -1,10 +1,11 @@
 """GPU-free Blender smoke for repeated-batch source provenance.
 
 Checks:
-- a successful run writes batch-source-index.json;
+- a successful run writes the multi-scope batch-source-index registry;
 - removing/renaming a source on the same scoped rerun reports a stale package
   without deleting it automatically;
 - a catalog-build failure preserves the previous canonical source baseline;
+- alternating another input scope does not erase the first scope's provenance;
 - a current refresh failure preserves the old valid package and reports it as a
   failed-refresh retained package.
 
@@ -112,11 +113,14 @@ def main():
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "source"
+            other_source = root / "source-other"
             output = root / "library"
             asset_a = source / "a.blend"
             asset_b = source / "b.blend"
+            other_asset = other_source / "other.blend"
             write_simple_blend(asset_a, "AssetA")
             write_simple_blend(asset_b, "AssetB")
+            write_simple_blend(other_asset, "OtherAsset")
 
             first = run_batch(addon, source, output)
             assert_true(first.get("failed") == 0, f"Initial provenance batch failed: {first.get('errors')}")
@@ -125,7 +129,12 @@ def main():
             source_index_path = Path(first.get("source_index_path"))
             assert_true(source_index_path.is_file(), "batch-source-index.json missing")
             first_index = json.loads(source_index_path.read_text(encoding="utf-8"))
-            assert_true(first_index.get("sourceCount") == 2, f"Unexpected first source index: {first_index}")
+            assert_true(first_index.get("schemaVersion") == 2, f"Expected source registry v2: {first_index}")
+            assert_true(first_index.get("scopeCount") == 1, f"Unexpected first scope count: {first_index}")
+            assert_true(
+                (first_index.get("latestScope") or {}).get("sourceCount") == 2,
+                f"Unexpected first source snapshot: {first_index}",
+            )
 
             # Remove one source without pruning output. The second run must flag
             # exactly one stale package while leaving it discoverable for manual
@@ -141,7 +150,7 @@ def main():
             assert_true(stale_manifest.is_file(), "Stale package was deleted automatically")
 
             # A failed catalog build means we cannot safely resolve which family
-            # IDs are actually present. The previous complete source baseline must
+            # IDs are actually present. The previous complete source registry must
             # remain canonical rather than being overwritten by this run.
             baseline_bytes = source_index_path.read_bytes()
             original_catalog_builder = addon.batch.build_library_index
@@ -167,11 +176,20 @@ def main():
                 catalog_failure.get("source_index_diagnostic_skipped_reason") == "LIBRARY_INDEX_UNAVAILABLE",
                 f"Unexpected source diagnostic state: {catalog_failure}",
             )
-            assert_true(source_index_path.read_bytes() == baseline_bytes, "Catalog failure overwrote source baseline")
+            assert_true(source_index_path.read_bytes() == baseline_bytes, "Catalog failure overwrote source registry")
 
-            # Force the remaining source's current refresh to fail. The old
-            # package should remain valid and the report must distinguish this
-            # from a removed-source stale package.
+            # Run a different input root into the same library. This must create
+            # a second registry scope instead of replacing the first scope.
+            other = run_batch(addon, other_source, output)
+            assert_true(other.get("failed") == 0, f"Alternate scope batch failed: {other.get('errors')}")
+            assert_true(other.get("source_index_updated") is True, f"Alternate scope was not persisted: {other}")
+            registry = json.loads(source_index_path.read_text(encoding="utf-8"))
+            assert_true(registry.get("scopeCount") == 2, f"Alternate scope erased provenance: {registry}")
+
+            # Force the original scope's current refresh to fail after the other
+            # scope has become the latest registry entry. The converter must
+            # still locate the original scope baseline and distinguish this from
+            # a removed-source stale package.
             old_manifest = output / "generic" / "a" / "a.family.json"
             old_bytes = old_manifest.read_bytes()
             original_convert = addon.batch.convert_asset
@@ -185,6 +203,7 @@ def main():
             finally:
                 addon.batch.convert_asset = original_convert
 
+            assert_true(third.get("source_index_comparable") is True, f"Original scope baseline was lost: {third}")
             assert_true(third.get("failed") == 1, f"Forced refresh failure was not reported: {third}")
             assert_true(third.get("stale_output_count") == 0, f"Current failed source was incorrectly marked removed: {third}")
             assert_true(
@@ -197,6 +216,9 @@ def main():
             )
             assert_true(old_manifest.is_file(), "Failed refresh deleted the old package")
             assert_true(old_manifest.read_bytes() == old_bytes, "Failed refresh changed old manifest bytes")
+
+            final_registry = json.loads(source_index_path.read_text(encoding="utf-8"))
+            assert_true(final_registry.get("scopeCount") == 2, f"Final registry lost a scope: {final_registry}")
 
         print("BATCH_PROVENANCE_SMOKE: PASS")
     finally:
