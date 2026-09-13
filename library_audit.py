@@ -4,8 +4,10 @@ from pathlib import Path
 
 try:
     from .package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
-except ImportError:  # Pure-Python tests import this module from repo root.
+    from .schema import validate_manifest
+except ImportError:  # Pure-Python tests import these modules from repo root.
     from package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
+    from schema import validate_manifest
 
 
 AUDIT_SCHEMA = "axion.family.library.audit"
@@ -179,6 +181,21 @@ def audit_library(root_directory):
             warnings.append(_warning("MISSING_FAMILY_ID", manifest_rel))
             continue
 
+        asset_warnings = _manifest_asset_warnings(manifest_path, root, data)
+        warnings.extend(asset_warnings)
+
+        schema_errors = validate_manifest(data)
+        if schema_errors:
+            preview = "; ".join(schema_errors[:6])
+            if len(schema_errors) > 6:
+                preview += f"; +{len(schema_errors) - 6} more"
+            warnings.append(_warning(
+                "INVALID_MANIFEST_SCHEMA",
+                manifest_rel,
+                detail=preview,
+            ))
+            continue
+
         if family_id in ids:
             warnings.append(_warning(
                 "DUPLICATE_FAMILY_ID",
@@ -189,8 +206,6 @@ def audit_library(root_directory):
         else:
             ids[family_id] = manifest_rel
 
-        asset_warnings = _manifest_asset_warnings(manifest_path, root, data)
-        warnings.extend(asset_warnings)
         families.append({
             "familyId": family_id,
             "manifest": manifest_rel,
