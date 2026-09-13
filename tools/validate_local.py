@@ -17,6 +17,7 @@ GPU_FREE_SMOKES = (
     ("transform_safety", "tests/blender_runtime/run_transform_safety.py", "TRANSFORM_SAFETY: PASS"),
     ("batch_cleanup", "tests/blender_runtime/run_cleanup_smoke.py", "CLEANUP_SMOKE: PASS"),
     ("export_state", "tests/blender_runtime/run_export_state_smoke.py", "EXPORT_STATE_SMOKE: PASS"),
+    ("rollback_recovery", "tests/blender_runtime/run_rollback_recovery_smoke.py", "ROLLBACK_RECOVERY_SMOKE: PASS"),
     ("mobile_lod", "tests/blender_runtime/run_lod_smoke.py", "LOD_SMOKE: PASS"),
     ("batch_provenance", "tests/blender_runtime/run_batch_provenance_smoke.py", "BATCH_PROVENANCE_SMOKE: PASS"),
 )
