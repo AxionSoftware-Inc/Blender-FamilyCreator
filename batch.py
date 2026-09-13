@@ -451,6 +451,11 @@ def _finalize_report(output_directory, report):
         report["source_index_updated"] = False
         report["source_index_path"] = existing_source_path
         report["source_index_error"] = previous_source_index_error
+    elif int(catalog.get("rejectedManifestCount", 0) or 0) > 0:
+        source_diagnostics = _empty_source_diagnostics("LIBRARY_INDEX_REJECTED_MANIFESTS")
+        report["source_index_updated"] = False
+        report["source_index_path"] = existing_source_path
+        report["source_index_error"] = previous_source_index_error
     elif previous_source_index_error:
         source_diagnostics = _empty_source_diagnostics("SOURCE_INDEX_INVALID")
         report["source_index_updated"] = False
