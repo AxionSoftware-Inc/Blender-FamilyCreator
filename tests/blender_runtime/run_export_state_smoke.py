@@ -7,7 +7,9 @@ Checks:
 - a forced pre-commit GLB failure leaves an empty destination untouched;
 - a failed overwrite preserves an existing valid manifest/GLB byte-for-byte;
 - a forced commit-time failure rolls back the previous package;
-- a successful re-export prunes obsolete manifest-managed assets only.
+- a successful re-export prunes obsolete manifest-managed assets only;
+- renaming a family in the same destination replaces the old manifest contract;
+- ambiguous destinations with multiple root manifests are rejected.
 
 Run from repository root:
 
@@ -227,6 +229,62 @@ def main():
             assert_true(not Path(prune_glb).exists(), "Obsolete manifest-managed GLB was not pruned")
             assert_true(notes.is_file(), "Unrelated package-side file was deleted")
             assert_true(notes.read_text(encoding="utf-8") == "keep me", "Unrelated file contents changed")
+
+            # Manifest rename: manual export uses the user-selected directory
+            # directly. If the family name changes, the old root manifest and
+            # its managed GLB must be replaced rather than leaving two contracts.
+            rename_output = Path(tmp) / "manifest-rename"
+            root.bfc_family_name = "Export State"
+            old_named_manifest, old_named_glb = addon.typed.export_typed_family(
+                root,
+                rename_output,
+                export_glb=True,
+                export_baked_types=False,
+                export_thumbnail=False,
+                export_lods=False,
+            )
+            rename_notes = rename_output / "notes.txt"
+            rename_notes.write_text("keep renamed package notes", encoding="utf-8")
+
+            root.bfc_family_name = "Export Renamed"
+            renamed_manifest, renamed_glb = addon.typed.export_typed_family(
+                root,
+                rename_output,
+                export_glb=True,
+                export_baked_types=False,
+                export_thumbnail=False,
+                export_lods=False,
+            )
+
+            root_manifests = list(rename_output.glob("*.family.json"))
+            assert_true(len(root_manifests) == 1, f"Rename left multiple manifests: {root_manifests}")
+            assert_true(root_manifests[0] == Path(renamed_manifest), "Renamed manifest is not the sole contract")
+            assert_true(not Path(old_named_manifest).exists(), "Old renamed manifest was not removed")
+            assert_true(not Path(old_named_glb).exists(), "Old renamed GLB was not removed")
+            assert_true(renamed_glb is not None and Path(renamed_glb).is_file(), "Renamed GLB missing")
+            assert_true(rename_notes.is_file(), "Unrelated file was removed during manifest rename")
+
+            # Ambiguous destination safety: two pre-existing root manifests are
+            # not safe to infer ownership from, so overwrite must be rejected.
+            extra_manifest = rename_output / "ambiguous.family.json"
+            extra_manifest.write_text("{}", encoding="utf-8")
+            renamed_bytes = Path(renamed_manifest).read_bytes()
+            try:
+                addon.typed.export_typed_family(
+                    root,
+                    rename_output,
+                    export_glb=False,
+                    export_baked_types=False,
+                    export_thumbnail=False,
+                    export_lods=False,
+                )
+            except RuntimeError as exc:
+                assert_true("multiple root manifests" in str(exc), f"Unexpected ambiguity error: {exc}")
+            else:
+                raise AssertionError("Ambiguous multi-manifest destination was not rejected")
+            assert_true(Path(renamed_manifest).read_bytes() == renamed_bytes, "Ambiguous overwrite changed valid manifest")
+            extra_manifest.unlink()
+            root.bfc_family_name = "Export State"
 
         print("EXPORT_STATE_SMOKE: PASS")
     finally:
