@@ -54,8 +54,9 @@ def parse_args():
         "--strict",
         action="store_true",
         help=(
-            "Exit non-zero if conversion failures, cleanup leftovers, stale/failed-refresh packages, "
-            "missing library assets or an incomplete library audit remain"
+            "Exit non-zero if conversion failures, cleanup leftovers, rejected manifests, "
+            "stale/failed-refresh packages, source-index errors, missing library assets or "
+            "an incomplete library audit remain"
         ),
     )
     parser.add_argument("--json-summary", help="Optional compact summary output path")
@@ -104,6 +105,7 @@ def _summary(report):
         "libraryFamilyCount": report.get("library_family_count"),
         "libraryMissingAssetCount": report.get("library_missing_asset_count"),
         "libraryAssetWarningCount": report.get("library_asset_warning_count"),
+        "libraryRejectedManifestCount": int(report.get("library_rejected_manifest_count", 0) or 0),
         "libraryIndexError": report.get("library_index_error"),
         "libraryAudit": report.get("library_audit_path"),
         "libraryAuditComplete": report.get("library_audit_complete"),
@@ -131,6 +133,9 @@ def _strict_failures(summary):
         )
     if summary.get("sourceIndexError"):
         failures.append(f"batch source index error: {summary['sourceIndexError']}")
+    rejected = summary.get("libraryRejectedManifestCount")
+    if isinstance(rejected, int) and rejected > 0:
+        failures.append(f"{rejected} rejected library manifest(s)")
     missing = summary.get("libraryMissingAssetCount")
     if isinstance(missing, int) and missing > 0:
         failures.append(f"{missing} missing library asset(s)")
@@ -195,6 +200,7 @@ def main():
         print(f"Failed-refresh retained packages: {summary['failedRefreshPackageCount']}")
         print(f"Mobile budgets: {summary['mobileBudgetStatusCounts']}")
         print(f"Library families: {summary['libraryFamilyCount']}")
+        print(f"Library rejected manifests: {summary['libraryRejectedManifestCount']}")
         print(f"Library missing assets: {summary['libraryMissingAssetCount']}")
         print(f"Library audit complete: {summary['libraryAuditComplete']}")
         print(f"Batch source index: {summary['sourceIndex']}")
