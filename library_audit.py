@@ -7,8 +7,18 @@ AUDIT_SCHEMA = "axion.family.library.audit"
 AUDIT_VERSION = 1
 
 
+def _lexical_relative(path, root):
+    try:
+        return Path(path).relative_to(Path(root)).as_posix()
+    except Exception:
+        return str(path)
+
+
 def _relative(path, root):
-    return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    try:
+        return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
 
 
 def _resolve_uri(manifest_path, root, uri):
@@ -54,6 +64,8 @@ def _check_uri(manifest_path, root, manifest_rel, uri, *, kind, label=None):
 
 def _manifest_asset_warnings(manifest_path, root, data):
     manifest_rel = _relative(manifest_path, root)
+    if manifest_rel is None:
+        return [_warning("UNSAFE_MANIFEST_PATH", _lexical_relative(manifest_path, root))]
     warnings = []
 
     variants = data.get("geometryVariants", {}) if isinstance(data.get("geometryVariants"), dict) else {}
@@ -114,6 +126,13 @@ def audit_library(root_directory):
 
     for manifest_path in manifests:
         manifest_rel = _relative(manifest_path, root)
+        if manifest_rel is None:
+            warnings.append(_warning(
+                "UNSAFE_MANIFEST_PATH",
+                _lexical_relative(manifest_path, root),
+            ))
+            continue
+
         data, error = _load_json(manifest_path)
         if error:
             warnings.append(_warning("INVALID_MANIFEST_JSON", manifest_rel, detail=error))
@@ -158,7 +177,12 @@ def audit_library(root_directory):
     )
     unsafe_uri_count = sum(
         count for code, count in warning_counts.items()
-        if code in {"UNSAFE_GEOMETRY_URI", "UNSAFE_LOD_URI", "UNSAFE_THUMBNAIL_URI"}
+        if code in {
+            "UNSAFE_MANIFEST_PATH",
+            "UNSAFE_GEOMETRY_URI",
+            "UNSAFE_LOD_URI",
+            "UNSAFE_THUMBNAIL_URI",
+        }
     )
 
     payload = {
