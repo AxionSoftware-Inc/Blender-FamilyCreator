@@ -7,7 +7,9 @@ Checks:
 - a catalog-build failure preserves the previous canonical source baseline;
 - alternating another input scope does not erase the first scope's provenance;
 - a current refresh failure preserves the old valid package and reports it as a
-  failed-refresh retained package.
+  failed-refresh retained package;
+- a corrupt canonical source registry is reported and preserved byte-for-byte
+  rather than silently replaced by the next successful conversion.
 
 Run from repository root:
 
@@ -136,9 +138,6 @@ def main():
                 f"Unexpected first source snapshot: {first_index}",
             )
 
-            # Remove one source without pruning output. The second run must flag
-            # exactly one stale package while leaving it discoverable for manual
-            # review/pruning.
             asset_b.unlink()
             second = run_batch(addon, source, output)
             assert_true(second.get("failed") == 0, f"Second provenance batch failed: {second.get('errors')}")
@@ -149,9 +148,6 @@ def main():
             stale_manifest = output / "generic" / "b" / "b.family.json"
             assert_true(stale_manifest.is_file(), "Stale package was deleted automatically")
 
-            # A failed catalog build means we cannot safely resolve which family
-            # IDs are actually present. The previous complete source registry must
-            # remain canonical rather than being overwritten by this run.
             baseline_bytes = source_index_path.read_bytes()
             original_catalog_builder = addon.batch.build_library_index
 
@@ -178,18 +174,12 @@ def main():
             )
             assert_true(source_index_path.read_bytes() == baseline_bytes, "Catalog failure overwrote source registry")
 
-            # Run a different input root into the same library. This must create
-            # a second registry scope instead of replacing the first scope.
             other = run_batch(addon, other_source, output)
             assert_true(other.get("failed") == 0, f"Alternate scope batch failed: {other.get('errors')}")
             assert_true(other.get("source_index_updated") is True, f"Alternate scope was not persisted: {other}")
             registry = json.loads(source_index_path.read_text(encoding="utf-8"))
             assert_true(registry.get("scopeCount") == 2, f"Alternate scope erased provenance: {registry}")
 
-            # Force the original scope's current refresh to fail after the other
-            # scope has become the latest registry entry. The converter must
-            # still locate the original scope baseline and distinguish this from
-            # a removed-source stale package.
             old_manifest = output / "generic" / "a" / "a.family.json"
             old_bytes = old_manifest.read_bytes()
             original_convert = addon.batch.convert_asset
@@ -219,6 +209,31 @@ def main():
 
             final_registry = json.loads(source_index_path.read_text(encoding="utf-8"))
             assert_true(final_registry.get("scopeCount") == 2, f"Final registry lost a scope: {final_registry}")
+
+            # Corrupt the canonical registry itself. The next conversion may
+            # still refresh family packages, but provenance must not be silently
+            # replaced because doing so would destroy the only evidence needed
+            # for safe stale-output comparisons.
+            corrupt_bytes = b'{"schema":"axion.family.batch-source-index","schemaVersion":2,bad-json'
+            source_index_path.write_bytes(corrupt_bytes)
+            corrupt_run = run_batch(addon, source, output)
+            assert_true(corrupt_run.get("failed") == 0, f"Conversion should still succeed: {corrupt_run}")
+            assert_true(
+                corrupt_run.get("source_index_updated") is False,
+                f"Corrupt provenance was unexpectedly overwritten: {corrupt_run}",
+            )
+            assert_true(
+                corrupt_run.get("source_index_diagnostic_skipped_reason") == "SOURCE_INDEX_INVALID",
+                f"Corrupt provenance was not explicitly diagnosed: {corrupt_run}",
+            )
+            assert_true(
+                "Could not read existing" in str(corrupt_run.get("source_index_error", "")),
+                f"Corrupt provenance error missing: {corrupt_run}",
+            )
+            assert_true(
+                source_index_path.read_bytes() == corrupt_bytes,
+                "Corrupt canonical provenance was silently replaced",
+            )
 
         print("BATCH_PROVENANCE_SMOKE: PASS")
     finally:
