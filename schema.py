@@ -2,6 +2,15 @@ SCHEMA_NAME = "axion.family"
 SCHEMA_VERSION = 2
 
 
+MOBILE_OPTIMIZATION_REASONS = {
+    "TRIANGLES",
+    "MATERIAL_SLOTS",
+    "DRAW_CALLS",
+    "TEXTURE_DIMENSION",
+    "TEXTURE_MEMORY",
+}
+
+
 def _number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
@@ -282,6 +291,26 @@ def _validate_mobile_budget(mobile, errors):
             errors.append(f"mobileBudget.{field} must be a non-negative integer")
     if "sourceTextureMemoryMiB" in mobile and not _nonnegative_number(mobile.get("sourceTextureMemoryMiB")):
         errors.append("mobileBudget.sourceTextureMemoryMiB must be a non-negative number")
+
+    optimization_reasons = mobile.get("optimizationReasons")
+    if optimization_reasons is not None:
+        if not isinstance(optimization_reasons, list) or any(
+            not isinstance(item, str) or item not in MOBILE_OPTIMIZATION_REASONS
+            for item in optimization_reasons
+        ):
+            errors.append(
+                "mobileBudget.optimizationReasons must contain only supported reason strings"
+            )
+        elif len(set(optimization_reasons)) != len(optimization_reasons):
+            errors.append("mobileBudget.optimizationReasons must not contain duplicates")
+
+    for field in (
+        "geometryLodRecommended",
+        "materialOptimizationRecommended",
+        "textureOptimizationRecommended",
+    ):
+        if field in mobile and not isinstance(mobile.get(field), bool):
+            errors.append(f"mobileBudget.{field} must be boolean")
 
     for field in ("suggestedLod1Ratio", "suggestedLod2Ratio"):
         ratio = mobile.get(field)
