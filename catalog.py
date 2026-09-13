@@ -2,7 +2,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from package_assets import safe_relative_asset_uri
+from package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
 
 
 CATALOG_SCHEMA = "axion.family.library"
@@ -219,11 +219,23 @@ def _entry_from_manifest(path, root, data, manifest_relative=None):
     return entry
 
 
+def _inside_recovery_tree(path, root):
+    try:
+        relative = Path(path).relative_to(Path(root))
+    except ValueError:
+        return False
+    return any(str(part).startswith(PACKAGE_RECOVERY_PREFIX) for part in relative.parts)
+
+
 def discover_family_manifests(root_directory):
     root = Path(root_directory)
     if not root.exists():
         return []
-    return sorted(path for path in root.rglob("*.family.json") if path.is_file())
+    return sorted(
+        path
+        for path in root.rglob("*.family.json")
+        if path.is_file() and not _inside_recovery_tree(path, root)
+    )
 
 
 def build_library_index(root_directory):
