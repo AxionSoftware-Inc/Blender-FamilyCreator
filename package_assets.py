@@ -7,7 +7,10 @@ thumbnails without touching unrelated files placed next to the package.
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+
+
+PACKAGE_RECOVERY_PREFIX = ".bfc-package-"
 
 
 def safe_relative_asset_uri(value):
@@ -23,6 +26,20 @@ def safe_relative_asset_uri(value):
     if not parts or any(part in {".", ".."} for part in parts):
         return None
     return PurePosixPath(*parts).as_posix()
+
+
+def is_internal_package_recovery_path(path, root):
+    """Return True when a path lives inside a preserved package-recovery tree.
+
+    Incomplete rollback intentionally keeps `.bfc-package-*` siblings on disk.
+    Those files are recovery material, not published runtime packages, and must
+    never be discovered as normal family manifests.
+    """
+    try:
+        relative = Path(path).relative_to(Path(root))
+    except (TypeError, ValueError):
+        return False
+    return any(str(part).startswith(PACKAGE_RECOVERY_PREFIX) for part in relative.parts)
 
 
 def manifest_asset_uris(data):
