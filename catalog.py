@@ -2,6 +2,8 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from package_assets import safe_relative_asset_uri
+
 
 CATALOG_SCHEMA = "axion.family.library"
 CATALOG_VERSION = 1
@@ -23,10 +25,10 @@ def _relative_uri(path, root):
 
 
 def _resolve_manifest_uri(manifest_path, root, uri):
-    uri_path = Path(str(uri))
-    if uri_path.is_absolute():
+    safe_uri = safe_relative_asset_uri(uri)
+    if safe_uri is None:
         return None
-    resolved = (Path(manifest_path).parent / uri_path).resolve()
+    resolved = (Path(manifest_path).parent / Path(safe_uri)).resolve()
     try:
         return resolved.relative_to(Path(root).resolve()).as_posix()
     except ValueError:
