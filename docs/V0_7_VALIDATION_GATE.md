@@ -12,14 +12,18 @@ Current candidate line:
 
 The validation report is machine-readable and records the tested Git commit, repository dirty state, Python executable, Blender executable/version, mode, command results, exit codes, marker checks and output tails.
 
-For a release-candidate run, pin the validator to the exact checked-out commit and require a clean worktree:
+For a release-candidate run, pin the validator to the exact checked-out commit, require a clean worktree and require Blender 5.2:
 
 ```powershell
 $sha = (git rev-parse HEAD).Trim()
-python tools/validate_local.py --expect-commit $sha --require-clean --keep-going
+python tools/validate_local.py `
+  --expect-commit $sha `
+  --require-clean `
+  --expect-blender-prefix 'Blender 5.2' `
+  --keep-going
 ```
 
-`--expect-commit` accepts a full SHA or an abbreviated SHA of at least seven characters. `--require-clean` fails when uncommitted changes exist.
+`--expect-commit` accepts a full SHA or an abbreviated SHA of at least seven characters. `--require-clean` fails when uncommitted changes exist. `--expect-blender-prefix` prevents a different Blender runtime from accidentally satisfying the candidate gate.
 
 ## Gate A — GPU-safe candidate validation
 
@@ -30,6 +34,7 @@ $sha = (git rev-parse HEAD).Trim()
 python tools/validate_local.py `
   --expect-commit $sha `
   --require-clean `
+  --expect-blender-prefix 'Blender 5.2' `
   --keep-going
 ```
 
@@ -37,14 +42,15 @@ This must run:
 
 1. exact candidate-commit guard;
 2. clean-worktree guard;
-3. pure-Python `unittest` discovery;
-4. semantic refinement smoke;
-5. Window capability smoke;
-6. transform/shear safety smoke;
-7. batch cleanup/leak smoke;
-8. export state + transaction smoke;
-9. mobile LOD smoke;
-10. repeated-batch source provenance smoke.
+3. Blender 5.2 version guard;
+4. pure-Python `unittest` discovery;
+5. semantic refinement smoke;
+6. Window capability smoke;
+7. transform/shear safety smoke;
+8. batch cleanup/leak smoke;
+9. export state + transaction smoke;
+10. mobile LOD smoke;
+11. repeated-batch source provenance smoke.
 
 Although LOD geometry processing is included, thumbnail/render validation is not included in this mode.
 
@@ -69,6 +75,7 @@ python tools/validate_local.py `
   --full `
   --expect-commit $sha `
   --require-clean `
+  --expect-blender-prefix 'Blender 5.2' `
   --keep-going
 ```
 
@@ -80,10 +87,11 @@ The v0.7 candidate is considered **locally runtime validated** only when:
 
 - candidate-commit guard passes;
 - clean-worktree guard passes;
+- Blender 5.2 guard passes;
 - all pure-Python tests pass;
 - all focused GPU-free Blender smokes pass;
 - `tests/blender_runtime/run_all.py` exits successfully;
-- the validation report records the intended candidate commit;
+- the validation report records the intended candidate commit and Blender version;
 - no cleanup leak, partial package, incomplete rollback, schema failure, missing runtime asset or stale provenance condition is present in the tested paths.
 
 After this gate is green, documentation may change from `validation pending` to a concrete tested Blender/Python baseline.
@@ -112,6 +120,7 @@ $sha = (git rev-parse HEAD).Trim()
 python tools/validate_local.py `
   --expect-commit $sha `
   --require-clean `
+  --expect-blender-prefix 'Blender 5.2' `
   --real-input 'C:\path\to\staging' `
   --real-output 'C:\path\to\validation-output' `
   --real-family-class AUTO_FOLDER `
@@ -151,6 +160,7 @@ Any of the following blocks a v0.7 validated/release claim:
 
 - candidate-commit mismatch;
 - dirty worktree during a release-candidate gate;
+- wrong Blender runtime for the declared validation baseline;
 - pure-Python regression;
 - Blender registration/runtime failure;
 - focused smoke failure;
