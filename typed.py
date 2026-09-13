@@ -415,25 +415,36 @@ def _commit_staged_package(stage_directory, destination_directory):
                 backup_existing(target)
                 touched_targets.append(target)
             os.replace(source, target)
-    except Exception:
+    except Exception as commit_error:
+        rollback_errors = []
         for target in reversed(touched_targets):
             try:
                 if target.exists() and target.is_file():
                     target.unlink()
-            except Exception:
-                pass
+            except Exception as exc:
+                rollback_errors.append(f"remove {target}: {exc}")
+
             backup = backups.get(target)
             if backup is not None and backup.exists():
                 try:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(backup, target)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    rollback_errors.append(f"restore {target}: {exc}")
+
         _remove_new_empty_directories(
             destination_directory,
             existing_directories,
             destination_existed,
         )
+
+        if rollback_errors:
+            preview = "; ".join(rollback_errors[:5])
+            if len(rollback_errors) > 5:
+                preview += f"; +{len(rollback_errors) - 5} more"
+            raise RuntimeError(
+                f"Family package commit failed: {commit_error}; rollback incomplete: {preview}"
+            ) from commit_error
         raise
 
 
