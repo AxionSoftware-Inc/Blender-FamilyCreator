@@ -30,6 +30,16 @@ class ManifestPathSafetyTests(unittest.TestCase):
             self.skipTest(f"Filesystem does not permit symlink fixture: {exc}")
         return link
 
+    def _minimal_manifest(self, family_id, name):
+        return {
+            "schema": "axion.family",
+            "schemaVersion": 2,
+            "familyId": family_id,
+            "familyKind": "GENERIC",
+            "name": name,
+            "quality": {"automaticReady": True},
+        }
+
     def test_catalog_rejects_manifest_symlink_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -75,6 +85,45 @@ class ManifestPathSafetyTests(unittest.TestCase):
                 _resolve_uri(manifest, root, "nested/asset.glb"),
                 package / "nested" / "asset.glb",
             )
+
+    def test_recovery_manifests_are_not_published_but_block_clean_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "library"
+            published = root / "generic" / "published"
+            published.mkdir(parents=True)
+            published_manifest = published / "published.family.json"
+            published_manifest.write_text(
+                json.dumps(self._minimal_manifest("axion:generic:published", "Published")),
+                encoding="utf-8",
+            )
+
+            recovery = root / "generic" / ".bfc-package-recovery-test"
+            staged = recovery / "package"
+            backup = recovery / "__bfc_backup__"
+            staged.mkdir(parents=True)
+            backup.mkdir(parents=True)
+            (staged / "staged.family.json").write_text(
+                json.dumps(self._minimal_manifest("axion:generic:staged", "Staged Recovery")),
+                encoding="utf-8",
+            )
+            (backup / "old.family.json").write_text(
+                json.dumps(self._minimal_manifest("axion:generic:old", "Backup Recovery")),
+                encoding="utf-8",
+            )
+
+            _catalog_path, catalog = build_library_index(root)
+            self.assertEqual(catalog["familyCount"], 1)
+            self.assertEqual(
+                [item["familyId"] for item in catalog["families"]],
+                ["axion:generic:published"],
+            )
+
+            audit = audit_library(root)
+            self.assertEqual(audit["manifestCount"], 1)
+            self.assertEqual(audit["validFamilyCount"], 1)
+            self.assertEqual(audit["recoveryDirectoryCount"], 1)
+            self.assertEqual(audit["warningCounts"].get("RECOVERY_DIRECTORY_PRESENT"), 1)
+            self.assertFalse(audit["complete"])
 
 
 if __name__ == "__main__":
