@@ -2,7 +2,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from package_assets import safe_relative_asset_uri
+from package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
 
 
 AUDIT_SCHEMA = "axion.family.library.audit"
@@ -21,6 +21,22 @@ def _relative(path, root):
         return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
     except (ValueError, OSError):
         return None
+
+
+def _inside_recovery_tree(path, root):
+    try:
+        relative = Path(path).relative_to(Path(root))
+    except ValueError:
+        return False
+    return any(str(part).startswith(PACKAGE_RECOVERY_PREFIX) for part in relative.parts)
+
+
+def _recovery_directories(root):
+    return sorted(
+        path
+        for path in Path(root).rglob(f"{PACKAGE_RECOVERY_PREFIX}*")
+        if path.is_dir()
+    )
 
 
 def _resolve_uri(manifest_path, root, uri):
@@ -118,8 +134,20 @@ def audit_library(root_directory):
     root = Path(root_directory).resolve()
     root.mkdir(parents=True, exist_ok=True)
 
-    manifests = sorted(path for path in root.rglob("*.family.json") if path.is_file())
-    warnings = []
+    recovery_directories = _recovery_directories(root)
+    manifests = sorted(
+        path
+        for path in root.rglob("*.family.json")
+        if path.is_file() and not _inside_recovery_tree(path, root)
+    )
+    warnings = [
+        _warning(
+            "RECOVERY_DIRECTORY_PRESENT",
+            "",
+            path=_lexical_relative(path, root),
+        )
+        for path in recovery_directories
+    ]
     families = []
     ids = {}
 
@@ -191,6 +219,7 @@ def audit_library(root_directory):
         "manifestCount": len(manifests),
         "validFamilyCount": len(families),
         "familyIdsUnique": len(ids),
+        "recoveryDirectoryCount": len(recovery_directories),
         "familiesWithAssetWarnings": sum(1 for item in families if item["assetWarnings"]),
         "assetWarningCount": sum(len(item["assetWarnings"]) for item in families),
         "missingAssetCount": missing_file_count,
