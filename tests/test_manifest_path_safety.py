@@ -1,3 +1,4 @@
+import copy
 import json
 import tempfile
 import unittest
@@ -5,6 +6,7 @@ from pathlib import Path
 
 from catalog import _resolve_manifest_uri, build_library_index
 from library_audit import _resolve_uri, audit_library
+from test_schema import BASE_MANIFEST
 
 
 class ManifestPathSafetyTests(unittest.TestCase):
@@ -30,15 +32,13 @@ class ManifestPathSafetyTests(unittest.TestCase):
             self.skipTest(f"Filesystem does not permit symlink fixture: {exc}")
         return link
 
-    def _minimal_manifest(self, family_id, name):
-        return {
-            "schema": "axion.family",
-            "schemaVersion": 2,
-            "familyId": family_id,
-            "familyKind": "GENERIC",
-            "name": name,
-            "quality": {"automaticReady": True},
-        }
+    def _valid_manifest(self, family_id, name):
+        data = copy.deepcopy(BASE_MANIFEST)
+        data["familyId"] = family_id
+        data["familyKind"] = "GENERIC"
+        data["name"] = name
+        data["quality"] = {"ready": True, "automaticReady": True, "score": 100}
+        return data
 
     def test_catalog_rejects_manifest_symlink_escape(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,7 +93,7 @@ class ManifestPathSafetyTests(unittest.TestCase):
             published.mkdir(parents=True)
             published_manifest = published / "published.family.json"
             published_manifest.write_text(
-                json.dumps(self._minimal_manifest("axion:generic:published", "Published")),
+                json.dumps(self._valid_manifest("axion:generic:published", "Published")),
                 encoding="utf-8",
             )
 
@@ -103,16 +103,17 @@ class ManifestPathSafetyTests(unittest.TestCase):
             staged.mkdir(parents=True)
             backup.mkdir(parents=True)
             (staged / "staged.family.json").write_text(
-                json.dumps(self._minimal_manifest("axion:generic:staged", "Staged Recovery")),
+                json.dumps(self._valid_manifest("axion:generic:staged", "Staged Recovery")),
                 encoding="utf-8",
             )
             (backup / "old.family.json").write_text(
-                json.dumps(self._minimal_manifest("axion:generic:old", "Backup Recovery")),
+                json.dumps(self._valid_manifest("axion:generic:old", "Backup Recovery")),
                 encoding="utf-8",
             )
 
             _catalog_path, catalog = build_library_index(root)
             self.assertEqual(catalog["familyCount"], 1)
+            self.assertEqual(catalog["rejectedManifestCount"], 0)
             self.assertEqual(
                 [item["familyId"] for item in catalog["families"]],
                 ["axion:generic:published"],
