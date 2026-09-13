@@ -4,6 +4,7 @@ Checks:
 - a successful run writes batch-source-index.json;
 - removing/renaming a source on the same scoped rerun reports a stale package
   without deleting it automatically;
+- a catalog-build failure preserves the previous canonical source baseline;
 - a current refresh failure preserves the old valid package and reports it as a
   failed-refresh retained package.
 
@@ -138,6 +139,35 @@ def main():
             assert_true(stale_ids == ["axion:generic:b"], f"Unexpected stale package IDs: {stale_ids}")
             stale_manifest = output / "generic" / "b" / "b.family.json"
             assert_true(stale_manifest.is_file(), "Stale package was deleted automatically")
+
+            # A failed catalog build means we cannot safely resolve which family
+            # IDs are actually present. The previous complete source baseline must
+            # remain canonical rather than being overwritten by this run.
+            baseline_bytes = source_index_path.read_bytes()
+            original_catalog_builder = addon.batch.build_library_index
+
+            def failing_catalog(_output):
+                raise RuntimeError("forced catalog build failure")
+
+            addon.batch.build_library_index = failing_catalog
+            try:
+                catalog_failure = run_batch(addon, source, output)
+            finally:
+                addon.batch.build_library_index = original_catalog_builder
+
+            assert_true(
+                "forced catalog build failure" in str(catalog_failure.get("library_index_error", "")),
+                f"Catalog failure was not reported: {catalog_failure}",
+            )
+            assert_true(
+                catalog_failure.get("source_index_updated") is False,
+                f"Source baseline changed despite missing catalog: {catalog_failure}",
+            )
+            assert_true(
+                catalog_failure.get("source_index_diagnostic_skipped_reason") == "LIBRARY_INDEX_UNAVAILABLE",
+                f"Unexpected source diagnostic state: {catalog_failure}",
+            )
+            assert_true(source_index_path.read_bytes() == baseline_bytes, "Catalog failure overwrote source baseline")
 
             # Force the remaining source's current refresh to fail. The old
             # package should remain valid and the report must distinguish this
