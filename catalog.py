@@ -7,8 +7,19 @@ CATALOG_SCHEMA = "axion.family.library"
 CATALOG_VERSION = 1
 
 
+def _lexical_relative_uri(path, root):
+    try:
+        return Path(path).relative_to(Path(root)).as_posix()
+    except Exception:
+        return str(path)
+
+
 def _relative_uri(path, root):
-    return Path(path).relative_to(root).as_posix()
+    """Return the physical root-relative path, rejecting symlink escapes."""
+    try:
+        return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
 
 
 def _resolve_manifest_uri(manifest_path, root, uri):
@@ -63,7 +74,7 @@ def _resolve_asset(path, root, uri, warnings, asset_type, **extra):
     return resolved
 
 
-def _entry_from_manifest(path, root, data):
+def _entry_from_manifest(path, root, data, manifest_relative=None):
     quality = data.get("quality", {}) if isinstance(data.get("quality"), dict) else {}
     profile = data.get("familyProfile", {}) if isinstance(data.get("familyProfile"), dict) else {}
     variants = data.get("geometryVariants", {}) if isinstance(data.get("geometryVariants"), dict) else {}
@@ -118,7 +129,7 @@ def _entry_from_manifest(path, root, data):
         "familyKind": data.get("familyKind", "GENERIC"),
         "category": data.get("category", profile.get("category", "Generic Model")),
         "group": profile.get("group", "Generic"),
-        "manifest": _relative_uri(path, root),
+        "manifest": manifest_relative if manifest_relative is not None else _relative_uri(path, root),
         "activeType": data.get("activeType", "Default"),
         "typeNames": list(data.get("types", {}).keys()) if isinstance(data.get("types"), dict) else [],
         "dimensions": data.get("dimensions", {}),
@@ -221,20 +232,28 @@ def build_library_index(root_directory):
     rejected = []
     ids = set()
     for path in discover_family_manifests(root):
+        manifest_relative = _relative_uri(path, root)
+        if manifest_relative is None:
+            rejected.append({
+                "manifest": _lexical_relative_uri(path, root),
+                "error": "manifest resolves outside library root",
+            })
+            continue
+
         data, error = _load_manifest(path)
         if error:
-            rejected.append({"manifest": _relative_uri(path, root), "error": error})
+            rejected.append({"manifest": manifest_relative, "error": error})
             continue
 
         family_id = data["familyId"]
         if family_id in ids:
             rejected.append({
-                "manifest": _relative_uri(path, root),
+                "manifest": manifest_relative,
                 "error": f"duplicate familyId: {family_id}",
             })
             continue
         ids.add(family_id)
-        entries.append(_entry_from_manifest(path, root, data))
+        entries.append(_entry_from_manifest(path, root, data, manifest_relative=manifest_relative))
 
     entries.sort(key=lambda item: (item.get("familyKind", ""), item.get("name", "").lower(), item["familyId"]))
     class_counts = Counter(item.get("familyKind", "GENERIC") for item in entries)
