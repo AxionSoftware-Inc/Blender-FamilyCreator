@@ -27,6 +27,10 @@ def _nonnegative_number(value):
     return _number(value) and float(value) >= 0.0
 
 
+def _numbers_match(left, right, tolerance=1e-6):
+    return _number(left) and _number(right) and abs(float(left) - float(right)) <= float(tolerance)
+
+
 def _numeric_vector(value, length):
     return (
         isinstance(value, list)
@@ -151,12 +155,15 @@ def _validate_geometry_variants(data, errors):
         errors.append("geometryVariants must be a non-empty object")
         return
 
+    saved_types = data.get("types") if isinstance(data.get("types"), dict) else {}
     primary_names = []
     for type_name, variant in variants.items():
         path = f"geometryVariants.{type_name}"
         if not isinstance(type_name, str) or not type_name.strip():
             errors.append("geometryVariants contains an invalid type name")
             continue
+        if type_name not in saved_types:
+            errors.append(f"{path} does not match a saved Family Type")
         if not isinstance(variant, dict):
             errors.append(f"{path} must be an object")
             continue
@@ -177,8 +184,9 @@ def _validate_geometry_variants(data, errors):
     if not isinstance(strategy, dict):
         errors.append("geometryStrategy must be an object when geometryVariants are present")
         return
-    if strategy.get("mode") not in {"BAKED_ACTIVE_TYPE", "BAKED_TYPE_VARIANTS"}:
-        errors.append("geometryStrategy.mode is invalid")
+    expected_mode = "BAKED_TYPE_VARIANTS" if len(variants) > 1 else "BAKED_ACTIVE_TYPE"
+    if strategy.get("mode") != expected_mode:
+        errors.append(f"geometryStrategy.mode must be {expected_mode} for {len(variants)} variant(s)")
     if strategy.get("activeType") != data.get("activeType"):
         errors.append("geometryStrategy.activeType must match activeType")
     if strategy.get("variantCount") != len(variants):
@@ -362,7 +370,9 @@ def _validate_geometry_lods(data, errors):
     if "LOD0" not in lods:
         errors.append("geometryLods must contain LOD0")
 
-    lod0_uri = None
+    lod0 = lods.get("LOD0") if isinstance(lods.get("LOD0"), dict) else None
+    lod0_uri = lod0.get("uri") if lod0 is not None else None
+
     for level, record in lods.items():
         path = f"geometryLods.{level}"
         if level not in {"LOD0", "LOD1", "LOD2"}:
@@ -374,7 +384,6 @@ def _validate_geometry_lods(data, errors):
         if not _relative_uri(uri):
             errors.append(f"{path}.uri must be a safe relative non-empty path")
         if level == "LOD0":
-            lod0_uri = uri
             if record.get("generated") is not False:
                 errors.append("geometryLods.LOD0.generated must be false")
         elif not isinstance(record.get("generated"), bool):
@@ -385,6 +394,13 @@ def _validate_geometry_lods(data, errors):
             errors.append(f"{path}.targetTriangles must be a non-negative integer")
         if "meetsTarget" in record and not isinstance(record.get("meetsTarget"), bool):
             errors.append(f"{path}.meetsTarget must be boolean")
+        if (
+            _nonnegative_int(record.get("triangles"))
+            and _nonnegative_int(record.get("targetTriangles"))
+            and isinstance(record.get("meetsTarget"), bool)
+            and record.get("meetsTarget") != (record.get("triangles") <= record.get("targetTriangles"))
+        ):
+            errors.append(f"{path}.meetsTarget must match triangles <= targetTriangles")
 
         alias = record.get("aliasOf")
         if alias is not None:
@@ -394,6 +410,11 @@ def _validate_geometry_lods(data, errors):
                 errors.append(f"{path} alias cannot be generated")
             if lod0_uri is not None and uri != lod0_uri:
                 errors.append(f"{path} alias URI must match LOD0")
+        elif level != "LOD0" and record.get("generated") is False:
+            errors.append(f"{path} non-generated level must alias LOD0")
+
+        if level != "LOD0" and record.get("generated") is True and lod0_uri is not None and uri == lod0_uri:
+            errors.append(f"{path} generated level must not overwrite/alias LOD0 URI")
 
         skipped = record.get("protectedOrSkippedMembers")
         if skipped is not None and not isinstance(skipped, list):
@@ -411,6 +432,60 @@ def _validate_geometry_lods(data, errors):
     protected = strategy.get("protectedRoles", [])
     if not isinstance(protected, list) or any(not isinstance(item, str) for item in protected):
         errors.append("lodStrategy.protectedRoles must be an array of strings")
+
+
+def _validate_runtime_relationships(data, errors):
+    runtime = data.get("runtimeCost")
+    mobile = data.get("mobileBudget")
+    if isinstance(runtime, dict) and isinstance(mobile, dict):
+        integer_pairs = (
+            ("triangles", "sourceTriangles"),
+            ("materialSlots", "sourceMaterialSlots"),
+            ("drawCallEstimate", "sourceDrawCallEstimate"),
+            ("maxTextureDimension", "sourceMaxTextureDimension"),
+        )
+        for runtime_field, mobile_field in integer_pairs:
+            if (
+                _nonnegative_int(runtime.get(runtime_field))
+                and _nonnegative_int(mobile.get(mobile_field))
+                and runtime.get(runtime_field) != mobile.get(mobile_field)
+            ):
+                errors.append(f"mobileBudget.{mobile_field} must match runtimeCost.{runtime_field}")
+        if (
+            _nonnegative_number(runtime.get("estimatedTextureMemoryMiB"))
+            and _nonnegative_number(mobile.get("sourceTextureMemoryMiB"))
+            and not _numbers_match(
+                runtime.get("estimatedTextureMemoryMiB"),
+                mobile.get("sourceTextureMemoryMiB"),
+                tolerance=0.001,
+            )
+        ):
+            errors.append(
+                "mobileBudget.sourceTextureMemoryMiB must match runtimeCost.estimatedTextureMemoryMiB"
+            )
+        family_kind = data.get("familyKind")
+        if isinstance(mobile.get("familyKind"), str) and mobile.get("familyKind") != family_kind:
+            errors.append("mobileBudget.familyKind must match familyKind")
+
+    lods = data.get("geometryLods")
+    variants = data.get("geometryVariants")
+    if isinstance(lods, dict):
+        lod0 = lods.get("LOD0")
+        if isinstance(lod0, dict) and isinstance(runtime, dict):
+            if (
+                _nonnegative_int(lod0.get("triangles"))
+                and _nonnegative_int(runtime.get("triangles"))
+                and lod0.get("triangles") != runtime.get("triangles")
+            ):
+                errors.append("geometryLods.LOD0.triangles must match runtimeCost.triangles")
+
+        active_type = data.get("activeType")
+        primary = variants.get(active_type) if isinstance(variants, dict) else None
+        if isinstance(lod0, dict) and isinstance(primary, dict):
+            lod0_uri = lod0.get("uri")
+            primary_uri = primary.get("uri")
+            if _relative_uri(lod0_uri) and _relative_uri(primary_uri) and lod0_uri != primary_uri:
+                errors.append("geometryLods.LOD0.uri must match the active primary geometry variant URI")
 
 
 def _validate_aabb(record, path, errors, require_minmax=True):
@@ -523,6 +598,7 @@ def validate_manifest(data):
     _validate_runtime_cost(data.get("runtimeCost"), errors)
     _validate_mobile_budget(data.get("mobileBudget"), errors)
     _validate_geometry_lods(data, errors)
+    _validate_runtime_relationships(data, errors)
 
     if not isinstance(data.get("semanticParameters", {}), dict):
         errors.append("semanticParameters must be an object")
