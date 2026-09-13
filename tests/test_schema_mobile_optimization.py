@@ -2,7 +2,73 @@ import copy
 import unittest
 
 from schema import validate_manifest
-from tests.test_schema import BASE_MANIFEST
+
+
+BASE_MANIFEST = {
+    "schema": "axion.family",
+    "schemaVersion": 2,
+    "familyId": "axion:table:mobile_budget_test",
+    "familyKind": "TABLE",
+    "name": "Mobile Budget Test",
+    "activeType": "Default",
+    "units": {"length": "meter"},
+    "coordinateSystems": {
+        "family": "RIGHT_HANDED_Z_UP",
+        "geometry": "GLTF_RIGHT_HANDED_Y_UP",
+    },
+    "baseDimensions": {"width": 1.2, "depth": 0.8, "height": 0.75},
+    "dimensions": {"width": 1.2, "depth": 0.8, "height": 0.75},
+    "types": {
+        "Default": {
+            "width": 1.2,
+            "depth": 0.8,
+            "height": 0.75,
+            "semanticParameters": {},
+        },
+    },
+    "semanticParameters": {},
+    "members": [
+        {
+            "name": "Top",
+            "type": "MESH",
+            "role": "TOP",
+            "rules": {"x": "STRETCH", "y": "STRETCH", "z": "MOVE"},
+        },
+    ],
+    "materials": [],
+    "runtimeProxy": {
+        "coordinateSystem": "RIGHT_HANDED_Z_UP",
+        "selection": {
+            "shape": "AABB",
+            "min": [-0.6, -0.4, -0.375],
+            "max": [0.6, 0.4, 0.375],
+            "center": [0.0, 0.0, 0.0],
+            "size": [1.2, 0.8, 0.75],
+        },
+        "collision": {
+            "shape": "AABB",
+            "coarse": True,
+            "center": [0.0, 0.0, 0.0],
+            "size": [1.2, 0.8, 0.75],
+        },
+        "planFootprint": {
+            "shape": "RECTANGLE",
+            "min": [-0.6, -0.4],
+            "max": [0.6, 0.4],
+            "baseZ": -0.375,
+        },
+        "typeBounds": {
+            "Default": {
+                "min": [-0.6, -0.4, -0.375],
+                "max": [0.6, 0.4, 0.375],
+                "center": [0.0, 0.0, 0.0],
+                "size": [1.2, 0.8, 0.75],
+            },
+        },
+    },
+    "quality": {"ready": True, "automaticReady": True},
+    "generator": {"supported": True, "revision": 1},
+}
 
 
 class MobileOptimizationSchemaTests(unittest.TestCase):
