@@ -4,8 +4,10 @@ from pathlib import Path
 
 try:
     from .package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
-except ImportError:  # Pure-Python tests import this module from repo root.
+    from .schema import validate_manifest
+except ImportError:  # Pure-Python tests import these modules from repo root.
     from package_assets import PACKAGE_RECOVERY_PREFIX, safe_relative_asset_uri
+    from schema import validate_manifest
 
 
 CATALOG_SCHEMA = "axion.family.library"
@@ -57,6 +59,12 @@ def _load_manifest(path):
     family_id = data.get("familyId")
     if not isinstance(family_id, str) or not family_id.strip():
         return None, "familyId missing"
+    schema_errors = validate_manifest(data)
+    if schema_errors:
+        preview = "; ".join(schema_errors[:6])
+        if len(schema_errors) > 6:
+            preview += f"; +{len(schema_errors) - 6} more"
+        return None, f"schema validation failed: {preview}"
     return data, None
 
 
