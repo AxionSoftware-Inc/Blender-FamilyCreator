@@ -65,8 +65,12 @@ Each family package is built in a sibling same-filesystem staging directory firs
 
 During commit:
 
-- existing target files are moved to temporary backups;
+- existing manifest-managed target files are moved to temporary backups;
 - new primary/variant/LOD/thumbnail files are promoted;
+- files referenced by the previous manifest but omitted by the new manifest are pruned transactionally;
+- unrelated files that were never owned by either manifest are left untouched;
+- a family-name/manifest-filename change replaces the previous single root manifest rather than leaving two contracts;
+- a destination containing multiple pre-existing root manifests is rejected as ambiguous;
 - the new family manifest is promoted last;
 - a normal commit failure restores the previous package;
 - an incomplete rollback is surfaced as an explicit export failure rather than being hidden.
@@ -102,19 +106,31 @@ The batch report contains:
 
 ## Source provenance and stale-output diagnostics
 
-`batch-source-index.json` records the input root, requested Family Class, source paths, resolved family IDs and conversion status.
+`batch-source-index.json` is a **schema-v2 multi-scope registry**. Each stored scope snapshot records:
 
-Stale comparison is only enabled when the previous source index has the same normalized input root and the same requested Family Class. This avoids flagging packages produced by unrelated batch jobs that share one library root.
+- normalized input root;
+- requested Family Class / `AUTO_FOLDER` mode;
+- source paths;
+- resolved family IDs;
+- conversion status.
+
+The registry preserves independent histories for multiple jobs sharing one library root. Alternating runs such as `assets-A -> assets-B -> assets-A` therefore still compare the final A run against the previous A snapshot rather than losing provenance when B ran in between.
+
+Legacy schema-v1 single-scope `batch-source-index.json` files remain readable and are upgraded to the v2 registry on the next successful write.
+
+A stale comparison is enabled only when the registry contains a scope with the same normalized input root and requested Family Class. This avoids flagging packages produced by unrelated jobs.
 
 The factory does **not** delete stale packages automatically. It reports them so a human or publishing layer can decide whether removal is appropriate.
 
 A removed/renamed source counts as stale only when that family ID still exists in the current library catalog. A source that failed in a previous run and never produced a package is not reported as stale merely because it later disappears.
 
+If catalog construction fails, the previous provenance registry is preserved instead of replacing a known-good baseline with an unverifiable run.
+
 ## Exit/failure behavior
 
 Default behavior continues after individual asset failures and records them in the report/review queue.
 
-With `--stop-on-error`, the first failed asset aborts the conversion loop after the partial batch report/catalog/audit have been finalized as far as possible. An aborted run does not replace the canonical previous `batch-source-index.json`, because it is not a complete view of the input corpus.
+With `--stop-on-error`, the first failed asset aborts the conversion loop after the partial batch report/catalog/audit have been finalized as far as possible. An aborted run does not replace the previous provenance registry, because it is not a complete view of the input corpus.
 
 Optional derivative failures (thumbnail or individual LOD level) are warnings when the primary family package remains valid.
 
@@ -130,15 +146,34 @@ python tools/audit_library.py `
   --fail-on-warning
 ```
 
+Catalog/audit URI resolution uses the same safe-relative-path contract as schema v2: absolute paths, `.`/`..` segments and physical/symlink escapes outside the library root are rejected.
+
 ## Unified local validation
 
-The preferred pre-publish developer gate is:
+Canonical acceptance criteria are in `docs/V0_7_VALIDATION_GATE.md` and the short entrypoint is `VALIDATION.md`.
+
+GPU-safe release-candidate gate:
 
 ```powershell
-python tools/validate_local.py --full --keep-going
+$sha = (git rev-parse HEAD).Trim()
+python tools/validate_local.py `
+  --expect-commit $sha `
+  --require-clean `
+  --expect-blender-prefix 'Blender 5.2' `
+  --keep-going
 ```
 
-Default `validate_local.py` mode runs pure-Python tests plus focused GPU-free Blender smoke tests. `--full` additionally runs the broad Blender runtime suite, including thumbnail/render coverage.
+Full gate when thumbnail/render validation may use Blender normally:
+
+```powershell
+$sha = (git rev-parse HEAD).Trim()
+python tools/validate_local.py `
+  --full `
+  --expect-commit $sha `
+  --require-clean `
+  --expect-blender-prefix 'Blender 5.2' `
+  --keep-going
+```
 
 An optional real corpus can be added with `--real-input`, `--real-output` and `--baseline-hardening`; the hardening comparison is run in fail-on-regression mode when a baseline is supplied.
 
@@ -146,7 +181,7 @@ The runner writes a machine-readable `tests/blender_runtime/artifacts/local-vali
 
 ## Recommended production sequence
 
-1. Run `python tools/validate_local.py --full --keep-going` after code changes when the GPU is available for thumbnail validation.
+1. Run the pinned clean-worktree local validation gate.
 2. Run a small golden real-asset corpus and compare against its hardening baseline.
 3. Run the larger source library headlessly, preferably with `--strict`.
 4. Inspect review queue, stale/failed-refresh diagnostics and mobile budget distributions.
