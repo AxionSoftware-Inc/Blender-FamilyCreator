@@ -1,7 +1,7 @@
 """GPU-free Blender smoke for state-safe transactional family export.
 
 Checks:
-- selection and active object are restored;
+- selection and active object are restored, including an empty active state;
 - hide_viewport, hide_render and hide_set are restored;
 - primary GLB exists on success;
 - a forced pre-commit GLB failure leaves an empty destination untouched;
@@ -182,6 +182,23 @@ def main():
             assert_true(bool(member.hide_viewport) == expected["hideViewport"], "hide_viewport changed after export")
             assert_true(hide_get(member) == expected["hideSet"], "hide_set changed after export")
 
+            # Exact empty-active-state restoration. The reusable geometry helper
+            # temporarily makes a family member active for Blender's exporter,
+            # but must return to no active/selected object when that was the
+            # original authoring state.
+            bpy.ops.object.select_all(action="DESELECT")
+            bpy.context.view_layer.objects.active = None
+            no_active_glb = Path(tmp) / "no-active.glb"
+            addon.geometry_export.export_glb_geometry(root, no_active_glb)
+            assert_true(no_active_glb.is_file(), "No-active GLB export missing")
+            assert_true(not bpy.context.selected_objects, "Empty selection was not restored")
+            assert_true(bpy.context.view_layer.objects.active is None, "Empty active-object state was not restored")
+
+            # Restore the sentinel fixture for the remaining authoring-state
+            # checks and transactional failure paths.
+            sentinel.select_set(True)
+            bpy.context.view_layer.objects.active = sentinel
+
             old_manifest_bytes, old_glb_bytes = package_bytes(manifest, glb)
 
             force_primary_failure(addon, root, output)
@@ -200,9 +217,6 @@ def main():
                 "Temporary staging directory leaked after export failure",
             )
 
-            # Managed-asset pruning: the first export owns a GLB. The second
-            # manifest intentionally omits geometry. The old GLB must disappear,
-            # but an unrelated user file beside the package must survive.
             prune_output = Path(tmp) / "managed-prune"
             prune_manifest, prune_glb = addon.typed.export_typed_family(
                 root,
@@ -230,9 +244,6 @@ def main():
             assert_true(notes.is_file(), "Unrelated package-side file was deleted")
             assert_true(notes.read_text(encoding="utf-8") == "keep me", "Unrelated file contents changed")
 
-            # Manifest rename: manual export uses the user-selected directory
-            # directly. If the family name changes, the old root manifest and
-            # its managed GLB must be replaced rather than leaving two contracts.
             rename_output = Path(tmp) / "manifest-rename"
             root.bfc_family_name = "Export State"
             old_named_manifest, old_named_glb = addon.typed.export_typed_family(
@@ -264,8 +275,6 @@ def main():
             assert_true(renamed_glb is not None and Path(renamed_glb).is_file(), "Renamed GLB missing")
             assert_true(rename_notes.is_file(), "Unrelated file was removed during manifest rename")
 
-            # Ambiguous destination safety: two pre-existing root manifests are
-            # not safe to infer ownership from, so overwrite must be rejected.
             extra_manifest = rename_output / "ambiguous.family.json"
             extra_manifest.write_text("{}", encoding="utf-8")
             renamed_bytes = Path(renamed_manifest).read_bytes()
