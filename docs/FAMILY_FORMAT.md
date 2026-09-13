@@ -30,9 +30,16 @@ lod/
 - procedural source templates remain in Blender authoring state and are excluded
   from exported runtime geometry.
 
-Before finalization the addon validates the manifest with `schema.py`. If a
-later schema/write error occurs, newly created primary/variant/LOD/thumbnail
-artifacts belonging to that transaction are cleaned up.
+Package export is **validate-before-overwrite**. The complete new package is
+first generated in a sibling same-filesystem staging directory, including
+primary/variant/LOD/thumbnail artifacts. The manifest must pass `schema.py`
+before the destination package is touched.
+
+During commit, existing target files are moved into temporary backups and the
+new manifest is promoted last. A normal commit failure rolls back replaced files
+to the previous package. If the filesystem also prevents a rollback restore,
+that secondary failure is surfaced explicitly as an incomplete rollback rather
+than being hidden.
 
 ## Identity and compatibility
 
@@ -290,8 +297,9 @@ Texture memory is a conservative **uncompressed RGBA8 estimate**, not the actual
 compressed GLB payload size or guaranteed GPU residency. It is meant for
 relative mobile-budget diagnostics.
 
-`drawCallEstimate` is also conservative: it is derived from evaluated mesh
-material-slot usage and is not a renderer-specific measured frame draw count.
+`drawCallEstimate` is derived from material indices actually referenced by
+evaluated polygons, so unused vendor material slots do not inflate the estimate.
+It is still an estimate, not a renderer-specific measured frame draw count.
 
 ## Mobile budget policy v2
 
@@ -320,6 +328,10 @@ gate:
       "hardTextureDimension": 4096,
       "targetTextureMemoryMiB": 96
     },
+    "optimizationReasons": ["TEXTURE_DIMENSION"],
+    "geometryLodRecommended": false,
+    "materialOptimizationRecommended": false,
+    "textureOptimizationRecommended": true,
     "suggestedLod1Ratio": 0.375,
     "suggestedLod2Ratio": 0.075,
     "warnings": [
@@ -334,6 +346,26 @@ Status values:
 - `WITHIN_TARGET`
 - `OVER_TARGET`
 - `OVER_HARD_LIMIT`
+
+Supported machine-readable optimization reasons are:
+
+```text
+TRIANGLES
+MATERIAL_SLOTS
+DRAW_CALLS
+TEXTURE_DIMENSION
+TEXTURE_MEMORY
+```
+
+The three recommendation flags deliberately separate what should happen next:
+
+- `geometryLodRecommended` — reduce mesh cost / generate or select LOD geometry;
+- `materialOptimizationRecommended` — reduce material-slot/draw-call pressure;
+- `textureOptimizationRecommended` — resize/repack/compress texture resources.
+
+These fields are backward-compatible optional schema-v2 extensions. Older v2
+packages that omit them remain valid; when present, `schema.py` validates their
+types and reason values.
 
 Policy v2 considers:
 
@@ -499,7 +531,10 @@ Batch packages can include local production traceability:
 }
 ```
 
-This is not required for runtime rendering.
+This is not required for runtime rendering. Repeated batch runs additionally
+write `batch-source-index.json` at the library root so removed sources and
+failed package refreshes can be diagnosed without deleting anything
+automatically.
 
 ## Runtime adoption path
 
@@ -508,8 +543,8 @@ Recommended mobile-engine order:
 1. load `library-index.json` and the selected family manifest;
 2. use semantic quality and capabilities for authoring behavior;
 3. use `runtimeProxy` for selection/coarse collision;
-4. choose `geometryLods` based on device, distance and screen size;
-5. treat texture/material budget warnings separately from mesh LOD decisions;
+4. use mobile recommendation flags to distinguish geometry vs material vs texture optimization;
+5. choose `geometryLods` based on device, distance and screen size when geometry LOD is useful;
 6. implement Wall-host placement/cutting for Door/Window;
 7. support simple dimension edits and selected runtime semantic generators;
 8. keep complex unsupported deformation baked.
