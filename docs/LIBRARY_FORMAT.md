@@ -18,8 +18,8 @@ library/
 
 `library-index.json` is rebuilt by Batch Family Factory. `library-audit.json`
 verifies that files referenced by manifests actually exist inside the same
-library root. `batch-source-index.json` records source provenance for safe
-same-scope stale/failed-refresh diagnostics across repeated production runs.
+library root. `batch-source-index.json` is a production provenance registry for
+safe stale/failed-refresh diagnostics across repeated batch scopes.
 
 ## Library index
 
@@ -97,8 +97,7 @@ Each family entry can include:
 - selection-proxy size and plan footprint;
 - runtime triangle/vertex/material-slot cost;
 - unique material count and estimated draw calls;
-- texture count, maximum texture dimension and estimated uncompressed RGBA
-  texture memory;
+- texture count, maximum texture dimension and estimated uncompressed RGBA texture memory;
 - mobile budget policy/status, optimization reasons/recommendations and suggested geometry LOD ratios;
 - source key for batch traceability;
 - `assetsComplete` and optional `assetWarnings`.
@@ -145,8 +144,20 @@ of textures/materials can legitimately have `geometryLodRecommended=false` and
 a suggested LOD1 ratio of `1.0`; the fix in that case is texture/material
 optimization rather than mesh decimation.
 
-All runtime asset paths are library-root-relative. A manifest URI that resolves
-outside the library root is never surfaced as a usable catalog asset.
+## Path and asset safety
+
+All runtime asset paths are library-root-relative and use the same safe-relative
+contract as schema v2.
+
+Catalog and audit reject:
+
+- absolute asset paths;
+- `.` or `..` URI segments even when normalization would remain inside the root;
+- asset symlinks/physical paths that resolve outside the library root;
+- manifest files whose own physical/symlink target resolves outside the library root.
+
+An unsafe manifest is rejected from `library-index.json` and reported by
+`library-audit.json` instead of being read as a normal family package.
 
 ## LOD catalog records
 
@@ -198,7 +209,8 @@ example:
 - invalid JSON;
 - unsupported schema/version;
 - missing family ID;
-- duplicate `familyId`.
+- duplicate `familyId`;
+- a manifest path that physically resolves outside the library root.
 
 Duplicate IDs are rejected rather than silently selecting the last file.
 
@@ -229,17 +241,19 @@ The audit checks:
 
 - duplicate family IDs;
 - malformed/unsupported manifests;
+- manifest physical-root containment;
 - missing primary/variant GLBs;
 - missing generated/aliased LOD files;
 - missing thumbnails;
-- URI path traversal outside the library root.
+- unsafe absolute/dot-segment/path-traversal/symlink asset URIs.
 
 It never deletes or repairs files automatically.
 
 ## Repeated-batch source provenance
 
-`batch-source-index.json` is separate from the runtime library index. It is a
-production provenance record containing:
+`batch-source-index.json` is separate from the runtime library index. Persisted
+files now use **schema version 2** as a multi-scope registry. Each stored scope is
+a schema-v1 source snapshot containing:
 
 - normalized input-directory scope;
 - requested exact/AUTO_FOLDER Family Class;
@@ -248,21 +262,26 @@ production provenance record containing:
 - resolved Family Class and family ID;
 - converted/failed state.
 
-The previous and current source indexes are only compared when their input root
-and requested Family Class match. This prevents an unrelated batch job from
-marking another job's packages stale.
+A library can therefore retain provenance for several independent batch jobs.
+Alternating runs such as A -> B -> A preserve A's old baseline while B becomes
+the latest scope. On the next A run the comparator finds the previous matching A
+scope by normalized input root + requested Family Class.
+
+Legacy schema-v1 single-scope files remain readable and are upgraded into the v2
+registry on the next successful write.
 
 Two important diagnostics are written into the batch report:
 
-- `stale_output_count`: a source from the previous comparable run is now gone or renamed, while its family ID is still present in the current library catalog;
+- `stale_output_count`: a source from the previous comparable scope is now gone or renamed, while its family ID is still present in the current library catalog;
 - `failed_refresh_package_count`: the source still exists and this run failed to refresh it, while the old family package is still present.
 
 Neither condition triggers automatic deletion. Production tooling should review
 or explicitly clean stale packages. `batch_cli.py --strict` treats both as a
 publish-gate failure.
 
-An aborted `--stop-on-error` run does not replace the previous canonical source
-index because it is not a complete view of the source corpus.
+An aborted `--stop-on-error` run does not replace provenance. A run whose
+`library-index.json` cannot be built also preserves the previous registry because
+present-family IDs cannot be verified safely.
 
 ## Batch cleanup health
 
@@ -275,6 +294,9 @@ process:
 
 Cleanup is snapshot-scoped. It does **not** run Blender's global orphan purge, so
 unrelated zero-user data that existed before an asset conversion is not deleted.
+Common vendor/import ID collections including mesh/curve/point-cloud,
+material/image/node-group, armature/action, volume, collection and related media
+IDs are tracked when the running Blender version exposes them.
 
 ## Command-line audit
 
