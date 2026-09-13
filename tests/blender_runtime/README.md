@@ -2,7 +2,8 @@
 
 This harness runs Blender Family Creator inside the installed Blender runtime.
 It combines the original deterministic suite with focused post-hardening gates
-for transforms, export transactions, cleanup, LOD and repeated batch provenance.
+for installed-package imports, transforms, export transactions, rollback
+recovery, cleanup, LOD and repeated batch provenance.
 
 There is intentionally no GitHub Actions workflow. Local Blender 5.2 is the
 runtime authority.
@@ -18,13 +19,15 @@ python tools/validate_local.py
 Default mode is **GPU-safe**. It runs:
 
 1. pure-Python unittest discovery;
-2. BED/WINDOW semantic refinement smoke;
-3. Window capability smoke;
-4. rotated-transform/source-isolation smoke;
-5. snapshot batch-cleanup smoke;
-6. export-state + staged-overwrite transaction smoke;
-7. mobile LOD/runtime-cost smoke;
-8. repeated-batch provenance/stale-output smoke.
+2. installed-package import smoke;
+3. BED/WINDOW semantic refinement smoke;
+4. Window capability smoke;
+5. rotated-transform/source-isolation smoke;
+6. snapshot batch-cleanup smoke;
+7. export-state + staged-overwrite transaction smoke;
+8. incomplete-rollback recovery smoke;
+9. mobile LOD/runtime-cost smoke;
+10. repeated-batch provenance/stale-output smoke.
 
 A machine-readable summary is written to:
 
@@ -59,6 +62,21 @@ regression suite. It raises on failure; the validation runner trusts its exit
 code rather than a hard-coded test count.
 
 ## GPU-free focused gates
+
+### Installed-package import semantics
+
+```powershell
+& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' `
+  --background --factory-startup `
+  --python tests/blender_runtime/run_package_import_smoke.py
+```
+
+This removes the repository root from `sys.path`, changes the working directory
+and loads the addon only as a package. Catalog, library audit, package-assets and
+schema helpers must resolve through package-relative imports rather than an
+accidental repository-root import.
+
+Expected marker: `PACKAGE_IMPORT_SMOKE: PASS`
 
 ### Semantic refinement
 
@@ -135,6 +153,24 @@ Checks include:
 
 Expected marker: `EXPORT_STATE_SMOKE: PASS`
 
+### Incomplete rollback recovery isolation
+
+```powershell
+& 'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe' `
+  --background --factory-startup `
+  --python tests/blender_runtime/run_rollback_recovery_smoke.py
+```
+
+Checks include:
+
+- incomplete rollback raises an explicit recovery error;
+- staged/backup files are preserved for manual recovery;
+- recovery manifests are never published into the runtime catalog;
+- library audit marks a recovery directory as incomplete rather than silently
+  treating the library as healthy.
+
+Expected marker: `ROLLBACK_RECOVERY_SMOKE: PASS`
+
 ### Non-destructive mobile LOD + runtime cost
 
 ```powershell
@@ -166,10 +202,17 @@ are green on the target Blender 5.2 installation.
 
 Checks include:
 
-- `batch-source-index.json` is written after a complete run;
+- `batch-source-index.json` is written atomically after a complete run;
 - removed source -> stale package diagnostic without auto-delete;
 - failed current refresh -> previous valid package is retained and reported as
-  `failedRefresh` rather than silently treated as current output.
+  `failedRefresh` rather than silently treated as current output;
+- alternating input scopes retain independent provenance history;
+- catalog-build failure or rejected manifests do not advance the canonical
+  source baseline;
+- corrupt/invalid provenance is reported and preserved byte-for-byte instead of
+  being silently overwritten;
+- registry `latestScope` must equal an exact stored snapshot, not merely share
+  the same input/class key.
 
 Expected marker: `BATCH_PROVENANCE_SMOKE: PASS`
 
@@ -183,10 +226,14 @@ Important newer coverage includes:
 
 - mobile budget policy v2 and optimization-reason flags;
 - runtime texture/draw-call resource metadata;
-- library runtime-cost aggregation;
+- full schema-v2 validation before catalog/audit publication;
+- cross-field runtimeCost/mobileBudget/LOD/variant consistency;
+- library runtime-cost aggregation and rejected-manifest accounting;
+- recovery-directory isolation from runtime discovery;
 - LOD/catalog/audit integrity;
 - hardening reasons for shear and spatial multi-assets;
 - scoped stale-output / failed-refresh source provenance;
+- atomic/corrupt provenance handling;
 - golden-overlap hardening comparison.
 
 ## Headless production factory smoke
@@ -213,11 +260,14 @@ A clean strict run should have:
 - cleanup warnings/leftovers = 0;
 - stale packages = 0;
 - failed-refresh retained packages = 0;
+- rejected runtime manifests = 0;
 - missing runtime assets = 0;
+- source-index errors = none;
 - complete library audit.
 
 `batch-source-index.json` is scoped to the same input root + requested Family
-Class. It does not auto-delete stale output.
+Class. It does not auto-delete stale output and an unreadable canonical index is
+never silently replaced.
 
 ## Real Asset Hardening
 
