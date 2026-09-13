@@ -33,8 +33,8 @@ def main():
     original_sys_path = list(sys.path)
     addon = None
 
-    # Avoid false positives from an earlier accidental top-level import.
-    for name in ("package_assets", "catalog", "library_audit"):
+    # Avoid false positives from earlier accidental top-level imports.
+    for name in ("package_assets", "schema", "catalog", "library_audit"):
         sys.modules.pop(name, None)
 
     try:
@@ -61,13 +61,19 @@ def main():
             catalog = importlib.import_module(f"{ADDON_NAME}.catalog")
             audit = importlib.import_module(f"{ADDON_NAME}.library_audit")
             package_assets = importlib.import_module(f"{ADDON_NAME}.package_assets")
+            schema = importlib.import_module(f"{ADDON_NAME}.schema")
 
             if catalog.safe_relative_asset_uri is not package_assets.safe_relative_asset_uri:
                 raise AssertionError("catalog did not resolve package-relative package_assets")
             if audit.safe_relative_asset_uri is not package_assets.safe_relative_asset_uri:
                 raise AssertionError("library_audit did not resolve package-relative package_assets")
-            if "package_assets" in sys.modules:
-                raise AssertionError("Top-level package_assets leaked into installed-package import mode")
+            if catalog.validate_manifest is not schema.validate_manifest:
+                raise AssertionError("catalog did not resolve package-relative schema")
+            if audit.validate_manifest is not schema.validate_manifest:
+                raise AssertionError("library_audit did not resolve package-relative schema")
+            for leaked in ("package_assets", "schema", "catalog", "library_audit"):
+                if leaked in sys.modules:
+                    raise AssertionError(f"Top-level {leaked} leaked into installed-package import mode")
 
             addon.register()
             addon.unregister()
