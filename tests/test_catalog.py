@@ -74,6 +74,7 @@ class CatalogTests(unittest.TestCase):
             path, payload = build_library_index(root)
             self.assertTrue(path.exists())
             self.assertEqual(payload["familyCount"], 2)
+            self.assertEqual(payload["rejectedManifestCount"], 0)
             self.assertEqual(payload["automaticReady"], 1)
             self.assertEqual(payload["needsReview"], 1)
             self.assertEqual(payload["classCounts"], {"SOFA": 1, "TABLE": 1})
@@ -161,6 +162,7 @@ class CatalogTests(unittest.TestCase):
 
             _path, payload = build_library_index(root)
             self.assertEqual(payload["familyCount"], 1)
+            self.assertEqual(payload["rejectedManifestCount"], 0)
             self.assertEqual(payload["missingAssetCount"], 3)
             self.assertEqual(payload["familiesWithAssetWarnings"], 1)
             self.assertFalse(payload["families"][0]["assetsComplete"])
@@ -224,8 +226,32 @@ class CatalogTests(unittest.TestCase):
 
             _path, payload = build_library_index(root)
             self.assertEqual(payload["familyCount"], 1)
+            self.assertEqual(payload["rejectedManifestCount"], 1)
             self.assertEqual(len(payload["rejectedManifests"]), 1)
             self.assertIn("duplicate familyId", payload["rejectedManifests"][0]["error"])
+
+    def test_malformed_entry_metadata_is_rejected_without_crashing_catalog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good_path = root / "good" / "good.family.json"
+            bad_path = root / "bad" / "bad.family.json"
+            good_path.parent.mkdir(parents=True)
+            bad_path.parent.mkdir(parents=True)
+
+            good_path.write_text(
+                json.dumps(_manifest("axion:chair:good", "Good", "CHAIR")),
+                encoding="utf-8",
+            )
+            bad = _manifest("axion:chair:bad", "Bad", "CHAIR")
+            bad["runtimeCost"]["triangles"] = "not-an-integer"
+            bad_path.write_text(json.dumps(bad), encoding="utf-8")
+
+            _path, payload = build_library_index(root)
+            self.assertEqual(payload["familyCount"], 1)
+            self.assertEqual(payload["rejectedManifestCount"], 1)
+            self.assertEqual(payload["families"][0]["familyId"], "axion:chair:good")
+            self.assertEqual(payload["rejectedManifests"][0]["manifest"], "bad/bad.family.json")
+            self.assertIn("catalog entry build failed", payload["rejectedManifests"][0]["error"])
 
 
 if __name__ == "__main__":
