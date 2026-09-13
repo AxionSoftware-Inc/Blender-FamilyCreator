@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -25,6 +26,18 @@ from .runtime_proxy import runtime_proxy_metadata
 from .schema import assert_valid_manifest
 from .thumbnail import DEFAULT_THUMBNAIL_SIZE, render_family_thumbnail
 from .variants import export_baked_type_variants
+
+
+class PackageRollbackError(RuntimeError):
+    """A package commit failed and rollback could not fully restore old files.
+
+    `recovery_directory` is deliberately preserved on disk so the remaining
+    staged/backup files can be inspected or restored manually.
+    """
+
+    def __init__(self, message, recovery_directory):
+        super().__init__(message)
+        self.recovery_directory = Path(recovery_directory)
 
 
 def family_profile(root):
@@ -432,7 +445,6 @@ def _commit_staged_package(stage_directory, destination_directory):
         )
 
     previous_manifest_target = existing_manifests[0] if existing_manifests else None
-    manifest_target = destination_directory / staged_manifest.relative_to(stage_directory)
     old_asset_uris = (
         _read_manifest_assets(previous_manifest_target)
         if previous_manifest_target is not None
@@ -499,11 +511,16 @@ def _commit_staged_package(stage_directory, destination_directory):
         )
 
         if rollback_errors:
+            recovery_root = stage_directory.parent
             preview = "; ".join(rollback_errors[:5])
             if len(rollback_errors) > 5:
                 preview += f"; +{len(rollback_errors) - 5} more"
-            raise RuntimeError(
-                f"Family package commit failed: {commit_error}; rollback incomplete: {preview}"
+            raise PackageRollbackError(
+                (
+                    f"Family package commit failed: {commit_error}; rollback incomplete: {preview}; "
+                    f"recovery files preserved at {recovery_root}"
+                ),
+                recovery_directory=recovery_root,
             ) from commit_error
         raise
 
@@ -604,20 +621,20 @@ def export_typed_family(
 ):
     """Export one family package through a validate-before-overwrite transaction.
 
-    All primary/variant/LOD/thumbnail artifacts are first generated in a sibling
-    same-filesystem staging directory. The existing destination is not modified
-    until schema validation succeeds. Commit is rollback-safe, removes only
-    obsolete files referenced by the previous manifest, and writes the new
-    family manifest last.
+    Normal staging/build/commit failures clean temporary files. If the commit
+    fails *and* rollback itself is incomplete, the temporary recovery directory
+    is intentionally kept so old backups are not destroyed by context cleanup.
     """
     destination = Path(directory)
     destination.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(
+    temporary_root = Path(tempfile.mkdtemp(
         prefix=".bfc-package-",
         dir=str(destination.parent),
-    ) as temporary_root:
-        stage_directory = Path(temporary_root) / "package"
+    ))
+    preserve_recovery = False
+    try:
+        stage_directory = temporary_root / "package"
         stage_directory.mkdir(parents=True, exist_ok=True)
 
         staged_manifest, staged_glb = _build_staged_typed_package(
@@ -634,6 +651,12 @@ def export_typed_family(
         glb_relative = staged_glb.relative_to(stage_directory) if staged_glb is not None else None
 
         _commit_staged_package(stage_directory, destination)
+    except PackageRollbackError:
+        preserve_recovery = True
+        raise
+    finally:
+        if not preserve_recovery:
+            shutil.rmtree(temporary_root, ignore_errors=True)
 
     manifest_path = destination / manifest_relative
     glb_path = destination / glb_relative if glb_relative is not None else None
