@@ -10,7 +10,7 @@ from .batch_source_index import (
     SOURCE_INDEX_FILENAME,
     build_source_index,
     compare_source_indexes,
-    load_source_index,
+    load_source_index_with_error,
     write_source_index,
 )
 from .catalog import build_library_index
@@ -365,10 +365,23 @@ def _review_queue_payload(report):
     }
 
 
+def _empty_source_diagnostics(reason):
+    return {
+        "comparable": False,
+        "skippedReason": reason,
+        "staleFamilyIds": [],
+        "failedRefreshFamilyIds": [],
+        "staleCount": 0,
+        "failedRefreshCount": 0,
+    }
+
+
 def _finalize_report(output_directory, report):
     output_directory = Path(output_directory)
     previous_source_index_path = output_directory / SOURCE_INDEX_FILENAME
-    previous_source_index = load_source_index(previous_source_index_path)
+    previous_source_index, previous_source_index_error = load_source_index_with_error(
+        previous_source_index_path
+    )
     current_source_index = build_source_index(report)
 
     report["ready"] = sum(1 for item in report.get("results", []) if not item.get("needs_review"))
@@ -415,42 +428,34 @@ def _finalize_report(output_directory, report):
         report["library_family_count"] = int(catalog.get("familyCount", 0))
         report["library_missing_asset_count"] = int(catalog.get("missingAssetCount", 0))
         report["library_asset_warning_count"] = int(catalog.get("assetWarningCount", 0))
+        report["library_rejected_manifest_count"] = int(catalog.get("rejectedManifestCount", 0) or 0)
         report["library_index_error"] = None
     except Exception as exc:
         report["library_index_path"] = None
         report["library_family_count"] = None
         report["library_missing_asset_count"] = None
         report["library_asset_warning_count"] = None
+        report["library_rejected_manifest_count"] = None
         report["library_index_error"] = str(exc)
 
+    existing_source_path = (
+        str(previous_source_index_path) if previous_source_index_path.is_file() else None
+    )
     if report.get("aborted"):
-        source_diagnostics = {
-            "comparable": False,
-            "skippedReason": "ABORTED_BATCH",
-            "staleFamilyIds": [],
-            "failedRefreshFamilyIds": [],
-            "staleCount": 0,
-            "failedRefreshCount": 0,
-        }
+        source_diagnostics = _empty_source_diagnostics("ABORTED_BATCH")
         report["source_index_updated"] = False
-        report["source_index_path"] = (
-            str(previous_source_index_path) if previous_source_index_path.is_file() else None
-        )
-        report["source_index_error"] = None
+        report["source_index_path"] = existing_source_path
+        report["source_index_error"] = previous_source_index_error
     elif catalog is None:
-        source_diagnostics = {
-            "comparable": False,
-            "skippedReason": "LIBRARY_INDEX_UNAVAILABLE",
-            "staleFamilyIds": [],
-            "failedRefreshFamilyIds": [],
-            "staleCount": 0,
-            "failedRefreshCount": 0,
-        }
+        source_diagnostics = _empty_source_diagnostics("LIBRARY_INDEX_UNAVAILABLE")
         report["source_index_updated"] = False
-        report["source_index_path"] = (
-            str(previous_source_index_path) if previous_source_index_path.is_file() else None
-        )
-        report["source_index_error"] = None
+        report["source_index_path"] = existing_source_path
+        report["source_index_error"] = previous_source_index_error
+    elif previous_source_index_error:
+        source_diagnostics = _empty_source_diagnostics("SOURCE_INDEX_INVALID")
+        report["source_index_updated"] = False
+        report["source_index_path"] = existing_source_path
+        report["source_index_error"] = previous_source_index_error
     else:
         catalog_ids = {
             str(item.get("familyId"))
@@ -468,7 +473,7 @@ def _finalize_report(output_directory, report):
             report["source_index_updated"] = True
             report["source_index_error"] = None
         except Exception as exc:
-            report["source_index_path"] = None
+            report["source_index_path"] = existing_source_path
             report["source_index_updated"] = False
             report["source_index_error"] = str(exc)
 
