@@ -437,10 +437,24 @@ def _finalize_report(output_directory, report):
             str(previous_source_index_path) if previous_source_index_path.is_file() else None
         )
         report["source_index_error"] = None
+    elif catalog is None:
+        source_diagnostics = {
+            "comparable": False,
+            "skippedReason": "LIBRARY_INDEX_UNAVAILABLE",
+            "staleFamilyIds": [],
+            "failedRefreshFamilyIds": [],
+            "staleCount": 0,
+            "failedRefreshCount": 0,
+        }
+        report["source_index_updated"] = False
+        report["source_index_path"] = (
+            str(previous_source_index_path) if previous_source_index_path.is_file() else None
+        )
+        report["source_index_error"] = None
     else:
         catalog_ids = {
             str(item.get("familyId"))
-            for item in ((catalog or {}).get("families", ()) or ())
+            for item in (catalog.get("families", ()) or ())
             if isinstance(item, dict) and item.get("familyId")
         }
         source_diagnostics = compare_source_indexes(
