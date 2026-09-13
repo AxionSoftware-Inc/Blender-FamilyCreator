@@ -88,6 +88,41 @@ def resolve_blender(explicit=None):
     )
 
 
+def _probe(command, cwd=REPO_ROOT):
+    try:
+        completed = subprocess.run(
+            [str(value) for value in command],
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=15,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    return (completed.stdout or "").strip()
+
+
+def _runtime_metadata(blender):
+    git_commit = _probe(["git", "rev-parse", "HEAD"])
+    git_status = _probe(["git", "status", "--porcelain"])
+    blender_version_output = _probe([blender, "--version"])
+    blender_version = None
+    if blender_version_output:
+        blender_version = blender_version_output.splitlines()[0].strip()
+    return {
+        "gitCommit": git_commit.splitlines()[0].strip() if git_commit else None,
+        "gitDirty": bool(git_status) if git_status is not None else None,
+        "pythonVersion": sys.version.splitlines()[0],
+        "blenderVersion": blender_version,
+    }
+
+
 def run_command(name, command, expected_marker=None, cwd=REPO_ROOT):
     started = time.time()
     completed = subprocess.run(
@@ -159,12 +194,17 @@ def stop_with_report(args, report):
 def main():
     args = parse_args()
     blender = resolve_blender(args.blender)
+    runtime = _runtime_metadata(blender)
     report = {
         "schema": "axion.family.local-validation",
         "schemaVersion": 1,
         "repoRoot": str(REPO_ROOT),
         "python": sys.executable,
         "blender": str(blender),
+        "gitCommit": runtime["gitCommit"],
+        "gitDirty": runtime["gitDirty"],
+        "pythonVersion": runtime["pythonVersion"],
+        "blenderVersion": runtime["blenderVersion"],
         "mode": "full" if args.full else "gpu-safe",
         "gates": [],
     }
@@ -245,6 +285,9 @@ def main():
     report_path = write_report(args.report, report)
 
     print("\n=== Axion Local Validation ===")
+    print(f"Commit: {report.get('gitCommit') or 'unknown'}")
+    print(f"Dirty working tree: {report.get('gitDirty')}")
+    print(f"Blender: {report.get('blenderVersion') or blender}")
     print(f"Passed: {report['passedCount']}/{report['gateCount']}")
     print(f"Mode: {report['mode']}")
     print(f"Report: {report_path}")
