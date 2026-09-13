@@ -7,7 +7,9 @@ Class. This preserves stale/failed-refresh detection across alternating jobs
 such as A -> B -> A.
 
 Schema-v1 single-scope files remain readable and are upgraded to the v2 registry
-format on the next successful write.
+format on the next successful write. Existing provenance is never silently
+replaced when the canonical index is unreadable/invalid, and writes are atomic
+within the output directory.
 
 Removed-source packages are only called *stale outputs* when the corresponding
 familyId still exists in the current library catalog. This avoids flagging a
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 
 
@@ -84,11 +87,21 @@ def _is_scope_snapshot(data):
 
 
 def _is_scope_registry(data):
-    return (
+    if not (
         isinstance(data, dict)
         and data.get("schema") == SOURCE_INDEX_SCHEMA
         and data.get("schemaVersion") == SOURCE_REGISTRY_VERSION
-        and isinstance(data.get("scopes", []), list)
+        and isinstance(data.get("scopes"), list)
+    ):
+        return False
+    scopes = data.get("scopes", [])
+    if not scopes or any(not _is_scope_snapshot(scope) for scope in scopes):
+        return False
+    if data.get("scopeCount") != len(scopes):
+        return False
+    latest = data.get("latestScope")
+    return _is_scope_snapshot(latest) and any(
+        source_index_scope_matches(scope, latest) for scope in scopes
     )
 
 
@@ -106,7 +119,7 @@ def _registry_scopes(data):
     if _is_scope_snapshot(data):
         return [data]
     if _is_scope_registry(data):
-        return [scope for scope in data.get("scopes", ()) if _is_scope_snapshot(scope)]
+        return list(data.get("scopes", ()))
     return []
 
 
@@ -177,18 +190,24 @@ def compare_source_indexes(previous, current, catalog_family_ids=None):
     return result
 
 
-def load_source_index(path):
-    """Load either a legacy v1 snapshot or the v2 multi-scope registry."""
+def load_source_index_with_error(path):
+    """Return `(payload, error)` while distinguishing missing from corrupt data."""
     path = Path(path)
     if not path.is_file():
-        return None
+        return None, None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, f"Could not read existing {SOURCE_INDEX_FILENAME}: {exc}"
     if _is_scope_snapshot(data) or _is_scope_registry(data):
-        return data
-    return None
+        return data, None
+    return None, f"Existing {SOURCE_INDEX_FILENAME} has an unsupported or invalid schema/registry structure"
+
+
+def load_source_index(path):
+    """Load either a legacy v1 snapshot or the v2 multi-scope registry."""
+    data, _error = load_source_index_with_error(path)
+    return data
 
 
 def _registry_payload(existing, current):
@@ -219,12 +238,47 @@ def _registry_payload(existing, current):
     }
 
 
+def _atomic_write_json(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 def write_source_index(output_directory, payload):
-    """Merge one scope snapshot into the persisted multi-scope registry."""
+    """Merge one scope snapshot into the persisted multi-scope registry atomically.
+
+    A corrupt/unsupported existing canonical file is never overwritten. The
+    caller must surface that condition for manual recovery or explicit repair.
+    """
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
     path = output_directory / SOURCE_INDEX_FILENAME
-    existing = load_source_index(path)
+    existing, load_error = load_source_index_with_error(path)
+    if load_error:
+        raise RuntimeError(load_error)
     registry = _registry_payload(existing, payload)
-    path.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_write_json(path, registry)
     return path
