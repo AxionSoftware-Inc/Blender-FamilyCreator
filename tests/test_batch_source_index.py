@@ -2,13 +2,16 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from batch_source_index import (
+    SOURCE_INDEX_FILENAME,
     SOURCE_INDEX_SCHEMA,
     SOURCE_REGISTRY_VERSION,
     build_source_index,
     compare_source_indexes,
     load_source_index,
+    load_source_index_with_error,
     source_index_scope_matches,
     write_source_index,
 )
@@ -191,7 +194,7 @@ class BatchSourceIndexTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            path = root / "batch-source-index.json"
+            path = root / SOURCE_INDEX_FILENAME
             path.write_text(json.dumps(legacy), encoding="utf-8")
             write_source_index(root, current)
             registry = load_source_index(path)
@@ -199,6 +202,56 @@ class BatchSourceIndexTests(unittest.TestCase):
             self.assertEqual(registry["scopeCount"], 2)
             self.assertTrue(compare_source_indexes(registry, legacy, catalog_family_ids={"axion:bed:a"})["comparable"])
             self.assertTrue(compare_source_indexes(registry, current, catalog_family_ids={"axion:window:a"})["comparable"])
+
+    def test_corrupt_existing_index_is_reported_and_never_overwritten(self):
+        current = build_source_index(self._report(results=[
+            {"source": "D:/assets/a.blend", "family_id": "axion:generic:a", "family_kind": "GENERIC"},
+        ]))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / SOURCE_INDEX_FILENAME
+            corrupt = b'{"schema": "axion.family.batch-source-index", bad-json'
+            path.write_bytes(corrupt)
+
+            loaded, error = load_source_index_with_error(path)
+            self.assertIsNone(loaded)
+            self.assertIn("Could not read existing", error)
+            with self.assertRaises(RuntimeError):
+                write_source_index(root, current)
+            self.assertEqual(path.read_bytes(), corrupt)
+
+    def test_invalid_registry_structure_is_not_silently_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / SOURCE_INDEX_FILENAME
+            path.write_text(json.dumps({
+                "schema": SOURCE_INDEX_SCHEMA,
+                "schemaVersion": SOURCE_REGISTRY_VERSION,
+                "scopeCount": 99,
+                "latestScope": {},
+                "scopes": [],
+            }), encoding="utf-8")
+            loaded, error = load_source_index_with_error(path)
+            self.assertIsNone(loaded)
+            self.assertIn("invalid schema/registry structure", error)
+
+    def test_atomic_write_failure_preserves_previous_registry_and_cleans_temp(self):
+        first = build_source_index(self._report(results=[
+            {"source": "D:/assets/a.blend", "family_id": "axion:generic:a", "family_kind": "GENERIC"},
+        ]))
+        second = build_source_index(self._report(results=[
+            {"source": "D:/assets/b.blend", "family_id": "axion:generic:b", "family_kind": "GENERIC"},
+        ]))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_source_index(root, first)
+            old_bytes = path.read_bytes()
+
+            with mock.patch("batch_source_index.os.replace", side_effect=OSError("forced replace failure")):
+                with self.assertRaises(OSError):
+                    write_source_index(root, second)
+
+            self.assertEqual(path.read_bytes(), old_bytes)
+            self.assertEqual(list(root.glob(f".{SOURCE_INDEX_FILENAME}.*.tmp")), [])
 
 
 if __name__ == "__main__":
