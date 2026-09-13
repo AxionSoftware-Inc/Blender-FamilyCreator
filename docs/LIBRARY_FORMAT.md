@@ -13,11 +13,13 @@ library/
   review-queue.json
   library-index.json
   library-audit.json
+  batch-source-index.json
 ```
 
 `library-index.json` is rebuilt by Batch Family Factory. `library-audit.json`
 verifies that files referenced by manifests actually exist inside the same
-library root.
+library root. `batch-source-index.json` records source provenance for safe
+same-scope stale/failed-refresh diagnostics across repeated production runs.
 
 ## Library index
 
@@ -40,6 +42,15 @@ Current index contract:
     "OVER_TARGET": 10,
     "OVER_HARD_LIMIT": 2
   },
+  "mobileOptimizationReasonCounts": {
+    "DRAW_CALLS": 4,
+    "TEXTURE_DIMENSION": 7,
+    "TEXTURE_MEMORY": 3,
+    "TRIANGLES": 8
+  },
+  "familiesRecommendedForGeometryLod": 8,
+  "familiesRecommendedForMaterialOptimization": 4,
+  "familiesRecommendedForTextureOptimization": 7,
   "familiesOverMobileTarget": 10,
   "familiesOverMobileHardLimit": 2,
   "runtimeCostSummary": {
@@ -61,6 +72,13 @@ across an entire library does **not** mean every texture will be resident at the
 same time on a device; it is useful for comparing library revisions and finding
 heavy outliers.
 
+The recommendation counters let the mobile/content pipeline distinguish three
+separate optimization jobs:
+
+- geometry/LOD reduction;
+- material-slot/draw-call consolidation;
+- texture-resolution/memory optimization.
+
 Each family entry can include:
 
 - stable `familyId`;
@@ -81,7 +99,7 @@ Each family entry can include:
 - unique material count and estimated draw calls;
 - texture count, maximum texture dimension and estimated uncompressed RGBA
   texture memory;
-- mobile budget policy/status and suggested geometry LOD ratios;
+- mobile budget policy/status, optimization reasons/recommendations and suggested geometry LOD ratios;
 - source key for batch traceability;
 - `assetsComplete` and optional `assetWarnings`.
 
@@ -107,7 +125,11 @@ Example compact runtime cost entry:
     "sourceDrawCallEstimate": 9,
     "sourceMaxTextureDimension": 4096,
     "sourceTextureMemoryMiB": 80.0,
-    "suggestedLod1Ratio": 0.4435,
+    "optimizationReasons": ["TEXTURE_DIMENSION", "TEXTURE_MEMORY"],
+    "geometryLodRecommended": false,
+    "materialOptimizationRecommended": false,
+    "textureOptimizationRecommended": true,
+    "suggestedLod1Ratio": 1.0,
     "suggestedLod2Ratio": 0.0806
   }
 }
@@ -119,8 +141,9 @@ geometry, material/draw-call cost, texture resolution or estimated texture
 memory needs runtime optimization.
 
 LOD ratios address **geometry only**. A family that is over budget only because
-of textures/materials can legitimately have a suggested LOD ratio of `1.0`; the
-fix in that case is texture/material optimization rather than mesh decimation.
+of textures/materials can legitimately have `geometryLodRecommended=false` and
+a suggested LOD1 ratio of `1.0`; the fix in that case is texture/material
+optimization rather than mesh decimation.
 
 All runtime asset paths are library-root-relative. A manifest URI that resolves
 outside the library root is never surfaced as a usable catalog asset.
@@ -213,12 +236,40 @@ The audit checks:
 
 It never deletes or repairs files automatically.
 
+## Repeated-batch source provenance
+
+`batch-source-index.json` is separate from the runtime library index. It is a
+production provenance record containing:
+
+- normalized input-directory scope;
+- requested exact/AUTO_FOLDER Family Class;
+- source path;
+- output key;
+- resolved Family Class and family ID;
+- converted/failed state.
+
+The previous and current source indexes are only compared when their input root
+and requested Family Class match. This prevents an unrelated batch job from
+marking another job's packages stale.
+
+Two important diagnostics are written into the batch report:
+
+- `stale_output_count`: a source from the previous comparable run is now gone or renamed, while its family ID is still present in the current library catalog;
+- `failed_refresh_count`: the source still exists and this run failed to refresh it, while the old family package is still present.
+
+Neither condition triggers automatic deletion. Production tooling should review
+or explicitly clean stale packages. `batch_cli.py --strict` treats both as a
+publish-gate failure.
+
+An aborted `--stop-on-error` run does not replace the previous canonical source
+index because it is not a complete view of the source corpus.
+
 ## Batch cleanup health
 
 `batch-report.json` additionally exposes cleanup health from the Blender batch
 process:
 
-- `cleanup_warnings` — converted assets whose post-import cleanup left IDs in use;
+- `cleanup_warnings` — converted assets whose post-import cleanup left IDs in use or whose cleanup diagnostic itself failed;
 - `cleanup_leftover_datablocks` — total remaining post-snapshot Blender IDs;
 - per-result `cleanup` records with removed/leftover counts by datablock type.
 
@@ -242,11 +293,12 @@ Recommended runtime flow:
 
 1. load `library-index.json` once;
 2. filter by Family Class, semantic quality/capabilities and user search;
-3. use runtime-cost summaries to avoid loading unsuitable heavy candidates;
+3. use runtime-cost/mobile recommendation summaries to avoid loading unsuitable heavy candidates;
 4. read proxy/footprint for lightweight preview/placement;
-5. choose an LOD URI according to device, screen size and distance;
-6. load the selected family manifest only when richer semantic detail is needed;
-7. surface review/incomplete-package state to production tools, not end users.
+5. choose an LOD URI according to device, screen size and distance only when geometry optimization is recommended;
+6. route material/texture recommendations to content optimization rather than treating them as semantic errors;
+7. load the selected family manifest only when richer semantic detail is needed;
+8. surface review/incomplete-package/stale state to production tools, not end users.
 
 The index is a discovery cache; the family manifest remains the authoritative
 per-family semantic contract.
