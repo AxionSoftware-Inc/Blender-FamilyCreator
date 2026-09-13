@@ -373,9 +373,10 @@ def _commit_staged_package(stage_directory, destination_directory):
     """Commit a validated package and rollback replaced/removed managed files.
 
     The staged manifest is the source of truth for the new managed asset set.
-    Files referenced by the previous manifest but omitted by the new manifest are
-    removed transactionally through the same backup/rollback mechanism. Files
-    that were never referenced by either manifest are left untouched.
+    A destination package may contain at most one root family manifest. That
+    previous manifest is replaced transactionally even when the family name (and
+    therefore manifest filename) changed. Files never referenced by either
+    manifest remain untouched.
     """
     stage_directory = Path(stage_directory)
     destination_directory = Path(destination_directory)
@@ -418,8 +419,25 @@ def _commit_staged_package(stage_directory, destination_directory):
             + ", ".join(unreferenced_staged_assets[:8])
         )
 
+    existing_manifests = []
+    if destination_directory.is_dir():
+        existing_manifests = sorted(
+            path for path in destination_directory.glob("*.family.json") if path.is_file()
+        )
+    if len(existing_manifests) > 1:
+        names = ", ".join(path.name for path in existing_manifests[:8])
+        raise RuntimeError(
+            "Destination family package contains multiple root manifests; refusing ambiguous overwrite: "
+            + names
+        )
+
+    previous_manifest_target = existing_manifests[0] if existing_manifests else None
     manifest_target = destination_directory / staged_manifest.relative_to(stage_directory)
-    old_asset_uris = _read_manifest_assets(manifest_target)
+    old_asset_uris = (
+        _read_manifest_assets(previous_manifest_target)
+        if previous_manifest_target is not None
+        else set()
+    )
     obsolete_asset_uris = sorted(old_asset_uris - new_asset_uris)
 
     destination_existed = destination_directory.exists()
@@ -438,9 +456,9 @@ def _commit_staged_package(stage_directory, destination_directory):
         backups[target] = backup
 
     try:
-        if manifest_target.exists():
-            backup_existing(manifest_target)
-            touched_targets.append(manifest_target)
+        if previous_manifest_target is not None:
+            backup_existing(previous_manifest_target)
+            touched_targets.append(previous_manifest_target)
 
         for uri in obsolete_asset_uris:
             target = destination_directory / Path(uri)
