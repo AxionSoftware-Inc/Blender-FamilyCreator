@@ -234,6 +234,29 @@ class BatchSourceIndexTests(unittest.TestCase):
             self.assertIsNone(loaded)
             self.assertIn("invalid schema/registry structure", error)
 
+    def test_registry_rejects_latest_scope_that_only_matches_key_not_snapshot(self):
+        scope = build_source_index(self._report(results=[
+            {"source": "D:/assets/a.blend", "family_id": "axion:generic:a", "family_kind": "GENERIC"},
+        ]))
+        altered_latest = json.loads(json.dumps(scope))
+        altered_latest["sources"] = []
+        altered_latest["sourceCount"] = 0
+        altered_latest["resolvedFamilyCount"] = 0
+        altered_latest["convertedCount"] = 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / SOURCE_INDEX_FILENAME
+            path.write_text(json.dumps({
+                "schema": SOURCE_INDEX_SCHEMA,
+                "schemaVersion": SOURCE_REGISTRY_VERSION,
+                "scopeCount": 1,
+                "latestScope": altered_latest,
+                "scopes": [scope],
+            }), encoding="utf-8")
+            loaded, error = load_source_index_with_error(path)
+            self.assertIsNone(loaded)
+            self.assertIn("invalid schema/registry structure", error)
+
     def test_atomic_write_failure_preserves_previous_registry_and_cleans_temp(self):
         first = build_source_index(self._report(results=[
             {"source": "D:/assets/a.blend", "family_id": "axion:generic:a", "family_kind": "GENERIC"},
