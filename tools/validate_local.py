@@ -38,6 +38,15 @@ def parse_args():
     parser.add_argument("--skip-pure", action="store_true", help="Skip normal Python unittest discovery.")
     parser.add_argument("--skip-smokes", action="store_true", help="Skip focused GPU-free Blender smokes.")
     parser.add_argument(
+        "--expect-commit",
+        help="Require the current git HEAD to match this full or abbreviated commit SHA.",
+    )
+    parser.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="Fail validation when the git working tree contains uncommitted changes.",
+    )
+    parser.add_argument(
         "--real-input",
         help="Optional real-asset corpus directory. Runs run_real_assets.py with --no-thumbnail.",
     )
@@ -154,6 +163,21 @@ def run_command(name, command, expected_marker=None, cwd=REPO_ROOT):
     return result
 
 
+def metadata_gate(name, passed, detail):
+    result = {
+        "name": name,
+        "passed": bool(passed),
+        "returnCode": 0 if passed else 1,
+        "durationSeconds": 0.0,
+        "command": None,
+        "expectedMarker": None,
+        "markerFound": None,
+        "outputTail": str(detail),
+    }
+    print(f"[{'PASS' if passed else 'FAIL'}] {name}: {detail}")
+    return result
+
+
 def blender_python_command(blender, script, extra_args=None):
     command = [
         blender,
@@ -206,8 +230,29 @@ def main():
         "pythonVersion": runtime["pythonVersion"],
         "blenderVersion": runtime["blenderVersion"],
         "mode": "full" if args.full else "gpu-safe",
+        "expectedCommit": args.expect_commit,
+        "requireClean": bool(args.require_clean),
         "gates": [],
     }
+
+    if args.expect_commit:
+        expected = str(args.expect_commit).strip().lower()
+        actual = str(runtime.get("gitCommit") or "").strip().lower()
+        passed = bool(actual) and len(expected) >= 7 and actual.startswith(expected)
+        detail = f"expected={expected}, actual={actual or 'unknown'}"
+        result = metadata_gate("candidate_commit", passed, detail)
+        report["gates"].append(result)
+        if should_stop(result, args.keep_going):
+            stop_with_report(args, report)
+
+    if args.require_clean:
+        dirty = runtime.get("gitDirty")
+        passed = dirty is False
+        detail = f"gitDirty={dirty}"
+        result = metadata_gate("clean_worktree", passed, detail)
+        report["gates"].append(result)
+        if should_stop(result, args.keep_going):
+            stop_with_report(args, report)
 
     if not args.skip_pure:
         result = run_command(
