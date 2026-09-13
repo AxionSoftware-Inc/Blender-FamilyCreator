@@ -5,6 +5,7 @@ Checks:
 - canonical rotation is preserved;
 - repeated apply is idempotent;
 - 90-degree axis mapping is correct;
+- mirrored member handedness is preserved through stretching;
 - canonical source shear is detected and preserved, not silently normalized;
 - multiple separated asset clusters are routed to review.
 
@@ -74,6 +75,15 @@ def shear_measure(matrix):
         abs(float(axes[left].dot(axes[right])))
         for left, right in ((0, 1), (0, 2), (1, 2))
     )
+
+
+def determinant_sign(matrix, tolerance=1e-10):
+    value = float(matrix.to_3x3().determinant())
+    if value > tolerance:
+        return 1
+    if value < -tolerance:
+        return -1
+    return 0
 
 
 def assert_no_shear(matrix, tolerance=1e-6):
@@ -156,6 +166,51 @@ def test_rotated_stretch(addon):
     assert_true(matrix_close(base, restored), "Base dimensions did not restore canonical matrix exactly")
 
 
+def test_mirrored_handedness(addon):
+    clean_scene()
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.2, 0.1, 0.5))
+    member = bpy.context.object
+    member.name = "MirroredAngledMember"
+    member.rotation_euler = (math.radians(7.0), math.radians(19.0), math.radians(-31.0))
+    member.scale = (-1.25, 0.8, 1.1)
+    bpy.context.view_layer.update()
+
+    root = addon.core.create_family(bpy.context, [member], name="Mirror Safety")
+    root.bfc_family_kind = "GENERIC"
+    member.bfc_rule_x = "STRETCH"
+    member.bfc_rule_y = "FIXED"
+    member.bfc_rule_z = "STRETCH"
+
+    base = root_local_matrix(root, member).copy()
+    base_sign = determinant_sign(base)
+    assert_true(base_sign == -1, f"Synthetic mirror did not produce negative handedness: {base_sign}")
+    assert_no_shear(base)
+
+    root["bfc_applying"] = True
+    try:
+        root.bfc_width = root.bfc_base_width * 1.65
+        root.bfc_height = root.bfc_base_height * 1.35
+    finally:
+        root["bfc_applying"] = False
+    addon.core.apply_family(root)
+    bpy.context.view_layer.update()
+
+    transformed = root_local_matrix(root, member).copy()
+    assert_no_shear(transformed)
+    assert_true(
+        determinant_sign(transformed) == base_sign,
+        "Mirrored member handedness changed during family stretch",
+    )
+
+    first = transformed.copy()
+    addon.core.apply_family(root)
+    bpy.context.view_layer.update()
+    assert_true(
+        matrix_close(first, root_local_matrix(root, member)),
+        "Repeated mirrored stretch accumulated transform drift",
+    )
+
+
 def test_preflight_shear(addon):
     clean_scene()
     bpy.ops.mesh.primitive_cube_add(size=1.0)
@@ -227,6 +282,7 @@ def main():
     try:
         clean_scene()
         test_rotated_stretch(addon)
+        test_mirrored_handedness(addon)
         test_preflight_shear(addon)
         test_spatial_multi_asset_review(addon)
         print("TRANSFORM_SAFETY: PASS")
