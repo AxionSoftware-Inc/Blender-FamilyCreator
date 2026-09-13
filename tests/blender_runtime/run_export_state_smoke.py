@@ -6,7 +6,8 @@ Checks:
 - primary GLB exists on success;
 - a forced pre-commit GLB failure leaves an empty destination untouched;
 - a failed overwrite preserves an existing valid manifest/GLB byte-for-byte;
-- a forced commit-time failure rolls back the previous package.
+- a forced commit-time failure rolls back the previous package;
+- a successful re-export prunes obsolete manifest-managed assets only.
 
 Run from repository root:
 
@@ -100,8 +101,6 @@ def force_commit_failure(addon, root, output):
     def flaky_replace(source, target):
         source_path = Path(source)
         target_path = Path(target)
-        # Fail once while promoting a staged GLB into the real package. Backup
-        # and rollback calls use the original implementation after this point.
         if (
             not tripped["value"]
             and "package" in source_path.parts
@@ -183,20 +182,14 @@ def main():
 
             old_manifest_bytes, old_glb_bytes = package_bytes(manifest, glb)
 
-            # Failure before commit must leave the existing valid package
-            # completely untouched.
             force_primary_failure(addon, root, output)
             assert_true(Path(manifest).read_bytes() == old_manifest_bytes, "Failed overwrite changed old manifest")
             assert_true(Path(glb).read_bytes() == old_glb_bytes, "Failed overwrite changed old GLB")
 
-            # Failure during commit occurs after the old manifest and target GLB
-            # have been moved to backups. Rollback must restore both exactly.
             force_commit_failure(addon, root, output)
             assert_true(Path(manifest).read_bytes() == old_manifest_bytes, "Commit rollback changed old manifest")
             assert_true(Path(glb).read_bytes() == old_glb_bytes, "Commit rollback changed old GLB")
 
-            # A failure targeting a destination that did not previously exist
-            # must not leave a discoverable half-package or staging artifacts.
             failure_output = Path(tmp) / "forced-failure"
             force_primary_failure(addon, root, failure_output)
             assert_true(not failure_output.exists(), "Failed new export left a destination directory")
@@ -204,6 +197,36 @@ def main():
                 not list(Path(tmp).glob(".bfc-package-*")),
                 "Temporary staging directory leaked after export failure",
             )
+
+            # Managed-asset pruning: the first export owns a GLB. The second
+            # manifest intentionally omits geometry. The old GLB must disappear,
+            # but an unrelated user file beside the package must survive.
+            prune_output = Path(tmp) / "managed-prune"
+            prune_manifest, prune_glb = addon.typed.export_typed_family(
+                root,
+                prune_output,
+                export_glb=True,
+                export_baked_types=False,
+                export_thumbnail=False,
+                export_lods=False,
+            )
+            assert_true(prune_glb is not None and Path(prune_glb).is_file(), "Prune fixture GLB missing")
+            notes = prune_output / "notes.txt"
+            notes.write_text("keep me", encoding="utf-8")
+
+            new_manifest, new_glb = addon.typed.export_typed_family(
+                root,
+                prune_output,
+                export_glb=False,
+                export_baked_types=False,
+                export_thumbnail=False,
+                export_lods=False,
+            )
+            assert_true(Path(new_manifest).is_file(), "Manifest missing after managed pruning")
+            assert_true(new_glb is None, "GLB unexpectedly returned after export_glb=False")
+            assert_true(not Path(prune_glb).exists(), "Obsolete manifest-managed GLB was not pruned")
+            assert_true(notes.is_file(), "Unrelated package-side file was deleted")
+            assert_true(notes.read_text(encoding="utf-8") == "keep me", "Unrelated file contents changed")
 
         print("EXPORT_STATE_SMOKE: PASS")
     finally:
