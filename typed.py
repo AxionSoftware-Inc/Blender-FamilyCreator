@@ -18,6 +18,7 @@ from .hierarchy import create_family_preserving_hierarchy
 from .hosting import hosting_metadata
 from .lod import export_family_lods
 from .materials import family_material_metadata
+from .package_assets import manifest_asset_uris
 from .quality import validate_family
 from .runtime_cost import family_runtime_cost
 from .runtime_proxy import runtime_proxy_metadata
@@ -317,8 +318,6 @@ def _primary_glb_path(directory, root):
 def _manifest_sort_key(path, stage_directory):
     relative = path.relative_to(stage_directory).as_posix()
     is_manifest = path.name.endswith(".family.json")
-    # Runtime discovery contract goes last. During an overwrite, no old manifest
-    # should remain visible while its referenced assets are being replaced.
     return (1 if is_manifest else 0, relative)
 
 
@@ -359,12 +358,24 @@ def _remove_new_empty_directories(directory, existing_directories, destination_e
             pass
 
 
-def _commit_staged_package(stage_directory, destination_directory):
-    """Commit a validated staged package with rollback-safe per-file replaces.
+def _read_manifest_assets(path):
+    path = Path(path)
+    if not path.is_file():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return set()
+    return manifest_asset_uris(data)
 
-    Only files produced by the current export are replaced. Unrelated files in
-    the package directory remain untouched. Existing targets are moved into a
-    same-filesystem backup first, and the family manifest is committed last.
+
+def _commit_staged_package(stage_directory, destination_directory):
+    """Commit a validated package and rollback replaced/removed managed files.
+
+    The staged manifest is the source of truth for the new managed asset set.
+    Files referenced by the previous manifest but omitted by the new manifest are
+    removed transactionally through the same backup/rollback mechanism. Files
+    that were never referenced by either manifest are left untouched.
     """
     stage_directory = Path(stage_directory)
     destination_directory = Path(destination_directory)
@@ -382,6 +393,35 @@ def _commit_staged_package(stage_directory, destination_directory):
     if len(manifest_files) != 1:
         raise RuntimeError(f"Staged family package must contain exactly one manifest, got {len(manifest_files)}")
 
+    staged_manifest = manifest_files[0]
+    try:
+        staged_manifest_data = json.loads(staged_manifest.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Could not read staged family manifest: {exc}") from exc
+
+    new_asset_uris = manifest_asset_uris(staged_manifest_data)
+    staged_asset_files = {
+        path.relative_to(stage_directory).as_posix()
+        for path in staged_files
+        if path != staged_manifest
+    }
+    missing_staged_assets = sorted(new_asset_uris - staged_asset_files)
+    unreferenced_staged_assets = sorted(staged_asset_files - new_asset_uris)
+    if missing_staged_assets:
+        raise RuntimeError(
+            "Staged manifest references missing package asset(s): "
+            + ", ".join(missing_staged_assets[:8])
+        )
+    if unreferenced_staged_assets:
+        raise RuntimeError(
+            "Staged package contains unreferenced managed file(s): "
+            + ", ".join(unreferenced_staged_assets[:8])
+        )
+
+    manifest_target = destination_directory / staged_manifest.relative_to(stage_directory)
+    old_asset_uris = _read_manifest_assets(manifest_target)
+    obsolete_asset_uris = sorted(old_asset_uris - new_asset_uris)
+
     destination_existed = destination_directory.exists()
     existing_directories = _existing_directories(destination_directory)
     backup_root = stage_directory.parent / "__bfc_backup__"
@@ -398,13 +438,15 @@ def _commit_staged_package(stage_directory, destination_directory):
         backups[target] = backup
 
     try:
-        # Hide the old discovery contract before replacing its referenced files.
-        # If anything fails, rollback restores this manifest and every replaced
-        # asset before re-raising.
-        manifest_target = destination_directory / manifest_files[0].relative_to(stage_directory)
         if manifest_target.exists():
             backup_existing(manifest_target)
             touched_targets.append(manifest_target)
+
+        for uri in obsolete_asset_uris:
+            target = destination_directory / Path(uri)
+            if target.exists() and target.is_file() and target not in touched_targets:
+                backup_existing(target)
+                touched_targets.append(target)
 
         for source in staged_files:
             relative = source.relative_to(stage_directory)
@@ -546,8 +588,9 @@ def export_typed_family(
 
     All primary/variant/LOD/thumbnail artifacts are first generated in a sibling
     same-filesystem staging directory. The existing destination is not modified
-    until schema validation succeeds. Commit uses rollback-safe `os.replace`
-    operations and writes the new family manifest last.
+    until schema validation succeeds. Commit is rollback-safe, removes only
+    obsolete files referenced by the previous manifest, and writes the new
+    family manifest last.
     """
     destination = Path(directory)
     destination.parent.mkdir(parents=True, exist_ok=True)
