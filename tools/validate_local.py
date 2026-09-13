@@ -12,6 +12,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BLENDER_WINDOWS = Path(r"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe")
 GPU_FREE_SMOKES = (
+    ("package_import", "tests/blender_runtime/run_package_import_smoke.py", "PACKAGE_IMPORT_SMOKE: PASS"),
     ("semantic_refinement", "tests/blender_runtime/run_refinement_smoke.py", "SEMANTIC_REFINEMENT_SMOKE: PASS"),
     ("window_capability", "tests/blender_runtime/run_window_capability_smoke.py", "WINDOW_CAPABILITY_SMOKE: PASS"),
     ("transform_safety", "tests/blender_runtime/run_transform_safety.py", "TRANSFORM_SAFETY: PASS"),
