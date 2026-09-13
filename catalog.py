@@ -269,8 +269,18 @@ def build_library_index(root_directory):
                 "error": f"duplicate familyId: {family_id}",
             })
             continue
+
+        try:
+            entry = _entry_from_manifest(path, root, data, manifest_relative=manifest_relative)
+        except Exception as exc:
+            rejected.append({
+                "manifest": manifest_relative,
+                "error": f"catalog entry build failed: {exc}",
+            })
+            continue
+
         ids.add(family_id)
-        entries.append(_entry_from_manifest(path, root, data, manifest_relative=manifest_relative))
+        entries.append(entry)
 
     entries.sort(key=lambda item: (item.get("familyKind", ""), item.get("name", "").lower(), item["familyId"]))
     class_counts = Counter(item.get("familyKind", "GENERIC") for item in entries)
@@ -321,6 +331,7 @@ def build_library_index(root_directory):
         "automaticReady": ready_count,
         "needsReview": len(entries) - ready_count,
         "classCounts": dict(sorted(class_counts.items())),
+        "rejectedManifestCount": len(rejected),
         "assetWarningCount": len(asset_warnings),
         "missingAssetCount": missing_asset_count,
         "familiesWithAssetWarnings": sum(1 for item in entries if item.get("assetWarnings")),
