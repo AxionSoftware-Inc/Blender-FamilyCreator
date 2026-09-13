@@ -85,11 +85,15 @@ def export_glb_objects(objects, filepath):
                 except Exception:
                     pass
 
-        if _object_exists(previous_active):
-            try:
+        # Preserve the exact active-object state, including the legitimate
+        # authoring case where no object was active before export.
+        try:
+            if _object_exists(previous_active):
                 bpy.context.view_layer.objects.active = previous_active
-            except Exception:
-                pass
+            else:
+                bpy.context.view_layer.objects.active = None
+        except Exception:
+            pass
 
         for obj, state in previous_visibility.items():
             if not _object_exists(obj):
