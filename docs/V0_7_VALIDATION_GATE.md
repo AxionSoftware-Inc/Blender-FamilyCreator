@@ -12,24 +12,39 @@ Current candidate line:
 
 The validation report is machine-readable and records the tested Git commit, repository dirty state, Python executable, Blender executable/version, mode, command results, exit codes, marker checks and output tails.
 
+For a release-candidate run, pin the validator to the exact checked-out commit and require a clean worktree:
+
+```powershell
+$sha = (git rev-parse HEAD).Trim()
+python tools/validate_local.py --expect-commit $sha --require-clean --keep-going
+```
+
+`--expect-commit` accepts a full SHA or an abbreviated SHA of at least seven characters. `--require-clean` fails when uncommitted changes exist.
+
 ## Gate A — GPU-safe candidate validation
 
 Use this while the NVIDIA GPU is reserved for AI training:
 
 ```powershell
-python tools/validate_local.py --keep-going
+$sha = (git rev-parse HEAD).Trim()
+python tools/validate_local.py `
+  --expect-commit $sha `
+  --require-clean `
+  --keep-going
 ```
 
 This must run:
 
-1. pure-Python `unittest` discovery;
-2. semantic refinement smoke;
-3. Window capability smoke;
-4. transform/shear safety smoke;
-5. batch cleanup/leak smoke;
-6. export state + transaction smoke;
-7. mobile LOD smoke;
-8. repeated-batch source provenance smoke.
+1. exact candidate-commit guard;
+2. clean-worktree guard;
+3. pure-Python `unittest` discovery;
+4. semantic refinement smoke;
+5. Window capability smoke;
+6. transform/shear safety smoke;
+7. batch cleanup/leak smoke;
+8. export state + transaction smoke;
+9. mobile LOD smoke;
+10. repeated-batch source provenance smoke.
 
 Although LOD geometry processing is included, thumbnail/render validation is not included in this mode.
 
@@ -49,7 +64,12 @@ No gate may be waived silently. If one fails, keep the JSON report and fix the c
 Run only when the GPU can safely be used by Blender:
 
 ```powershell
-python tools/validate_local.py --full --keep-going
+$sha = (git rev-parse HEAD).Trim()
+python tools/validate_local.py `
+  --full `
+  --expect-commit $sha `
+  --require-clean `
+  --keep-going
 ```
 
 This repeats Gate A and additionally runs the full Blender runtime harness, including thumbnail/render validation.
@@ -58,11 +78,12 @@ This repeats Gate A and additionally runs the full Blender runtime harness, incl
 
 The v0.7 candidate is considered **locally runtime validated** only when:
 
+- candidate-commit guard passes;
+- clean-worktree guard passes;
 - all pure-Python tests pass;
 - all focused GPU-free Blender smokes pass;
 - `tests/blender_runtime/run_all.py` exits successfully;
 - the validation report records the intended candidate commit;
-- repository dirty state is understood and contains no uncommitted production-code modifications that were not part of the tested commit;
 - no cleanup leak, partial package, incomplete rollback, schema failure, missing runtime asset or stale provenance condition is present in the tested paths.
 
 After this gate is green, documentation may change from `validation pending` to a concrete tested Blender/Python baseline.
@@ -83,6 +104,22 @@ The established golden behavior must not regress:
 - source/staging assets remain unchanged.
 
 Use `tools/compare_hardening.py --fail-on-regression` when a golden baseline report is available.
+
+The unified validator can also run a GPU-safe real-corpus pass and golden comparison:
+
+```powershell
+$sha = (git rev-parse HEAD).Trim()
+python tools/validate_local.py `
+  --expect-commit $sha `
+  --require-clean `
+  --real-input 'C:\path\to\staging' `
+  --real-output 'C:\path\to\validation-output' `
+  --real-family-class AUTO_FOLDER `
+  --baseline-hardening 'C:\path\to\golden\hardening-report.json' `
+  --keep-going
+```
+
+The real-corpus runner uses `--no-thumbnail` in this path.
 
 ## Gate D — Expanded real-asset generalization
 
@@ -112,6 +149,8 @@ Generalization targets remain:
 
 Any of the following blocks a v0.7 validated/release claim:
 
+- candidate-commit mismatch;
+- dirty worktree during a release-candidate gate;
 - pure-Python regression;
 - Blender registration/runtime failure;
 - focused smoke failure;
