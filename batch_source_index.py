@@ -1,9 +1,13 @@
 """Batch-source provenance and stale-output diagnostics.
 
 A production library root can contain packages from multiple independent batch
-jobs, so merely comparing `library-index.json` against one input directory would
-create false stale-package warnings. This module only compares runs when both
-input root and requested Family Class match the previous batch-source index.
+jobs. The persisted `batch-source-index.json` therefore stores a registry of
+per-scope snapshots keyed logically by normalized input root + requested Family
+Class. This preserves stale/failed-refresh detection across alternating jobs
+such as A -> B -> A.
+
+Schema-v1 single-scope files remain readable and are upgraded to the v2 registry
+format on the next successful write.
 
 Removed-source packages are only called *stale outputs* when the corresponding
 familyId still exists in the current library catalog. This avoids flagging a
@@ -19,6 +23,7 @@ from pathlib import Path
 
 SOURCE_INDEX_SCHEMA = "axion.family.batch-source-index"
 SOURCE_INDEX_VERSION = 1
+SOURCE_REGISTRY_VERSION = 2
 SOURCE_INDEX_FILENAME = "batch-source-index.json"
 
 
@@ -44,6 +49,11 @@ def _source_record(item, converted):
 
 
 def build_source_index(report):
+    """Build one scope snapshot from a batch report.
+
+    The returned object intentionally remains schema v1. `write_source_index`
+    persists snapshots inside the schema-v2 multi-scope registry.
+    """
     report = report if isinstance(report, dict) else {}
     records = []
     records.extend(_source_record(item, True) for item in (report.get("results", ()) or ()))
@@ -64,18 +74,47 @@ def build_source_index(report):
     }
 
 
+def _is_scope_snapshot(data):
+    return (
+        isinstance(data, dict)
+        and data.get("schema") == SOURCE_INDEX_SCHEMA
+        and data.get("schemaVersion") == SOURCE_INDEX_VERSION
+        and isinstance(data.get("sources", []), list)
+    )
+
+
+def _is_scope_registry(data):
+    return (
+        isinstance(data, dict)
+        and data.get("schema") == SOURCE_INDEX_SCHEMA
+        and data.get("schemaVersion") == SOURCE_REGISTRY_VERSION
+        and isinstance(data.get("scopes", []), list)
+    )
+
+
 def source_index_scope_matches(previous, current):
-    if not isinstance(previous, dict) or not isinstance(current, dict):
-        return False
-    if previous.get("schema") != SOURCE_INDEX_SCHEMA or current.get("schema") != SOURCE_INDEX_SCHEMA:
-        return False
-    if previous.get("schemaVersion") != SOURCE_INDEX_VERSION or current.get("schemaVersion") != SOURCE_INDEX_VERSION:
+    if not _is_scope_snapshot(previous) or not _is_scope_snapshot(current):
         return False
     return (
         _normalized_path(previous.get("inputDirectory")) == _normalized_path(current.get("inputDirectory"))
         and str(previous.get("requestedFamilyKind", "")).upper()
         == str(current.get("requestedFamilyKind", "")).upper()
     )
+
+
+def _registry_scopes(data):
+    if _is_scope_snapshot(data):
+        return [data]
+    if _is_scope_registry(data):
+        return [scope for scope in data.get("scopes", ()) if _is_scope_snapshot(scope)]
+    return []
+
+
+def _matching_previous_scope(previous, current):
+    for scope in reversed(_registry_scopes(previous)):
+        if source_index_scope_matches(scope, current):
+            return scope
+    return None
 
 
 def compare_source_indexes(previous, current, catalog_family_ids=None):
@@ -85,7 +124,8 @@ def compare_source_indexes(previous, current, catalog_family_ids=None):
         if catalog_available
         else set()
     )
-    comparable = source_index_scope_matches(previous, current)
+    previous_scope = _matching_previous_scope(previous, current)
+    comparable = previous_scope is not None
     result = {
         "comparable": comparable,
         "catalogAvailable": catalog_available,
@@ -101,7 +141,7 @@ def compare_source_indexes(previous, current, catalog_family_ids=None):
 
     previous_ids = {
         str(item.get("familyId"))
-        for item in (previous.get("sources", ()) or ())
+        for item in (previous_scope.get("sources", ()) or ())
         if isinstance(item, dict) and item.get("familyId")
     }
     current_records = [item for item in (current.get("sources", ()) or ()) if isinstance(item, dict)]
@@ -138,6 +178,7 @@ def compare_source_indexes(previous, current, catalog_family_ids=None):
 
 
 def load_source_index(path):
+    """Load either a legacy v1 snapshot or the v2 multi-scope registry."""
     path = Path(path)
     if not path.is_file():
         return None
@@ -145,16 +186,45 @@ def load_source_index(path):
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
-    if not isinstance(data, dict):
-        return None
-    if data.get("schema") != SOURCE_INDEX_SCHEMA or data.get("schemaVersion") != SOURCE_INDEX_VERSION:
-        return None
-    return data
+    if _is_scope_snapshot(data) or _is_scope_registry(data):
+        return data
+    return None
+
+
+def _registry_payload(existing, current):
+    if not _is_scope_snapshot(current):
+        raise ValueError("Current batch source index must be a valid scope snapshot")
+
+    scopes = list(_registry_scopes(existing))
+    replaced = False
+    for index, scope in enumerate(scopes):
+        if source_index_scope_matches(scope, current):
+            scopes[index] = current
+            replaced = True
+            break
+    if not replaced:
+        scopes.append(current)
+
+    scopes.sort(key=lambda scope: (
+        _normalized_path(scope.get("inputDirectory")),
+        str(scope.get("requestedFamilyKind", "")).upper(),
+    ))
+
+    return {
+        "schema": SOURCE_INDEX_SCHEMA,
+        "schemaVersion": SOURCE_REGISTRY_VERSION,
+        "scopeCount": len(scopes),
+        "latestScope": current,
+        "scopes": scopes,
+    }
 
 
 def write_source_index(output_directory, payload):
+    """Merge one scope snapshot into the persisted multi-scope registry."""
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
     path = output_directory / SOURCE_INDEX_FILENAME
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    existing = load_source_index(path)
+    registry = _registry_payload(existing, payload)
+    path.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
