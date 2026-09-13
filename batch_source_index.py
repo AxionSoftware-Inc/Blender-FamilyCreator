@@ -100,9 +100,7 @@ def _is_scope_registry(data):
     if data.get("scopeCount") != len(scopes):
         return False
     latest = data.get("latestScope")
-    return _is_scope_snapshot(latest) and any(
-        source_index_scope_matches(scope, latest) for scope in scopes
-    )
+    return _is_scope_snapshot(latest) and any(scope == latest for scope in scopes)
 
 
 def source_index_scope_matches(previous, current):
