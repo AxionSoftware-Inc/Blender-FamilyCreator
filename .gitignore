@@ -1,0 +1,21 @@
+# Python local caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local virtual environments
+.venv/
+venv/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Blender local backup/autosave files
+*.blend1
+*.blend2
+*.blend@
