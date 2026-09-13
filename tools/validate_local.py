@@ -47,6 +47,10 @@ def parse_args():
         help="Fail validation when the git working tree contains uncommitted changes.",
     )
     parser.add_argument(
+        "--expect-blender-prefix",
+        help="Require the Blender --version first line to start with this value, for example 'Blender 5.2'.",
+    )
+    parser.add_argument(
         "--real-input",
         help="Optional real-asset corpus directory. Runs run_real_assets.py with --no-thumbnail.",
     )
@@ -232,6 +236,7 @@ def main():
         "mode": "full" if args.full else "gpu-safe",
         "expectedCommit": args.expect_commit,
         "requireClean": bool(args.require_clean),
+        "expectedBlenderPrefix": args.expect_blender_prefix,
         "gates": [],
     }
 
@@ -250,6 +255,16 @@ def main():
         passed = dirty is False
         detail = f"gitDirty={dirty}"
         result = metadata_gate("clean_worktree", passed, detail)
+        report["gates"].append(result)
+        if should_stop(result, args.keep_going):
+            stop_with_report(args, report)
+
+    if args.expect_blender_prefix:
+        expected = str(args.expect_blender_prefix).strip()
+        actual = str(runtime.get("blenderVersion") or "").strip()
+        passed = bool(actual) and actual.lower().startswith(expected.lower())
+        detail = f"expectedPrefix={expected!r}, actual={actual or 'unknown'}"
+        result = metadata_gate("blender_version", passed, detail)
         report["gates"].append(result)
         if should_stop(result, args.keep_going):
             stop_with_report(args, report)
