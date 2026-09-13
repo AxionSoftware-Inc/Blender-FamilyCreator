@@ -44,13 +44,15 @@ This must run:
 2. clean-worktree guard;
 3. Blender 5.2 version guard;
 4. pure-Python `unittest` discovery;
-5. semantic refinement smoke;
-6. Window capability smoke;
-7. transform/shear safety smoke;
-8. batch cleanup/leak smoke;
-9. export state + transaction smoke;
-10. mobile LOD smoke;
-11. repeated-batch source provenance smoke.
+5. installed-package import smoke;
+6. semantic refinement smoke;
+7. Window capability smoke;
+8. transform/shear safety smoke;
+9. batch cleanup/leak smoke;
+10. export state + transaction smoke;
+11. incomplete-rollback recovery smoke;
+12. mobile LOD smoke;
+13. repeated-batch source provenance smoke.
 
 Although LOD geometry processing is included, thumbnail/render validation is not included in this mode.
 
@@ -89,10 +91,11 @@ The v0.7 candidate is considered **locally runtime validated** only when:
 - clean-worktree guard passes;
 - Blender 5.2 guard passes;
 - all pure-Python tests pass;
+- installed-package import semantics pass outside the repository-root import environment;
 - all focused GPU-free Blender smokes pass;
 - `tests/blender_runtime/run_all.py` exits successfully;
 - the validation report records the intended candidate commit and Blender version;
-- no cleanup leak, partial package, incomplete rollback, schema failure, missing runtime asset or stale provenance condition is present in the tested paths.
+- no cleanup leak, partial package, incomplete rollback, schema failure, rejected runtime manifest, missing runtime asset, corrupt provenance baseline or stale provenance condition is present in the tested paths.
 
 After this gate is green, documentation may change from `validation pending` to a concrete tested Blender/Python baseline.
 
@@ -161,6 +164,7 @@ Any of the following blocks a v0.7 validated/release claim:
 - candidate-commit mismatch;
 - dirty worktree during a release-candidate gate;
 - wrong Blender runtime for the declared validation baseline;
+- installed-package import failure hidden by repository-root `sys.path` behavior;
 - pure-Python regression;
 - Blender registration/runtime failure;
 - focused smoke failure;
@@ -168,9 +172,13 @@ Any of the following blocks a v0.7 validated/release claim:
 - cleanup leftovers that accumulate across assets;
 - failed overwrite damaging the previous valid package;
 - rollback failure hidden instead of reported;
+- recovery directories accidentally published as runtime families;
 - manifest/GLB/LOD/thumbnail asset-integrity mismatch;
+- schema-invalid or otherwise rejected manifest accepted into the runtime catalog;
 - stale or failed-refresh package ignored by strict production mode;
-- source provenance baseline overwritten after an aborted/catalog-failed batch;
+- source provenance baseline overwritten after an aborted/catalog-failed/rejected-manifest batch;
+- corrupt or structurally inconsistent source provenance baseline silently overwritten;
+- `latestScope` not matching an exact persisted provenance snapshot;
 - schema accepting invalid mobile optimization metadata;
 - golden real-asset regression.
 
