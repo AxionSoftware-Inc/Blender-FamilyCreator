@@ -6,9 +6,18 @@ from . import core
 from .mobile_budget import evaluate_mobile_budget
 
 
+def _source_materials(obj):
+    data = getattr(obj, "data", None)
+    slots = getattr(data, "materials", None)
+    if slots is None:
+        return []
+    return [material for material in slots if material is not None]
+
+
 def _mesh_cost(obj, depsgraph):
     evaluated = None
     mesh = None
+    evaluated_materials = []
     try:
         evaluated = obj.evaluated_get(depsgraph)
         try:
@@ -17,7 +26,10 @@ def _mesh_cost(obj, depsgraph):
             mesh = None
 
         if mesh is None:
-            return {"vertices": 0, "triangles": 0, "materialSlots": 0, "drawCallEstimate": 0}
+            return (
+                {"vertices": 0, "triangles": 0, "materialSlots": 0, "drawCallEstimate": 0},
+                _source_materials(obj),
+            )
 
         try:
             mesh.calc_loop_triangles()
@@ -28,6 +40,9 @@ def _mesh_cost(obj, depsgraph):
 
         vertices = len(getattr(mesh, "vertices", ()))
         material_slots = len(getattr(mesh, "materials", ()))
+        evaluated_materials = [
+            material for material in getattr(mesh, "materials", ()) if material is not None
+        ]
 
         # Vendor files often keep many unused material slots. Counting all slots
         # as draw calls creates noisy mobile-budget warnings, so estimate the
@@ -41,12 +56,15 @@ def _mesh_cost(obj, depsgraph):
         if triangles > 0 and draw_calls == 0:
             draw_calls = 1
 
-        return {
-            "vertices": int(vertices),
-            "triangles": int(triangles),
-            "materialSlots": int(material_slots),
-            "drawCallEstimate": int(draw_calls),
-        }
+        return (
+            {
+                "vertices": int(vertices),
+                "triangles": int(triangles),
+                "materialSlots": int(material_slots),
+                "drawCallEstimate": int(draw_calls),
+            },
+            evaluated_materials,
+        )
     finally:
         if mesh is not None and evaluated is not None:
             try:
@@ -94,19 +112,14 @@ def _iter_node_tree_images(node_tree, visited=None):
             yield from _iter_node_tree_images(child_tree, visited)
 
 
-def _material_and_texture_cost(members):
+def _material_and_texture_cost(material_candidates):
     materials = {}
     images = {}
 
-    for obj in members:
-        data = getattr(obj, "data", None)
-        slots = getattr(data, "materials", None)
-        if slots is None:
+    for material in material_candidates:
+        if material is None:
             continue
-        for material in slots:
-            if material is None:
-                continue
-            materials[_material_key(material)] = material
+        materials[_material_key(material)] = material
 
     for material in materials.values():
         node_tree = getattr(material, "node_tree", None)
@@ -166,12 +179,16 @@ def family_runtime_cost(root):
     mesh_objects = 0
     non_mesh_objects = 0
     members_cost = []
+    material_candidates = []
 
     for obj in members:
         if depsgraph is None:
             cost = {"vertices": 0, "triangles": 0, "materialSlots": 0, "drawCallEstimate": 0}
+            evaluated_materials = _source_materials(obj)
         else:
-            cost = _mesh_cost(obj, depsgraph)
+            cost, evaluated_materials = _mesh_cost(obj, depsgraph)
+        material_candidates.extend(evaluated_materials)
+
         if cost["triangles"] or getattr(obj, "type", None) == "MESH":
             mesh_objects += 1
         else:
@@ -186,7 +203,7 @@ def family_runtime_cost(root):
             **cost,
         })
 
-    resource_cost = _material_and_texture_cost(members)
+    resource_cost = _material_and_texture_cost(material_candidates)
     cost = {
         "measurement": "EVALUATED_TRIANGULATED_GEOMETRY",
         "textureMemoryEstimate": "UNCOMPRESSED_RGBA8",
