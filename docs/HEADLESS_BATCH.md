@@ -98,7 +98,7 @@ The batch report contains:
 - library-audit path and completion state;
 - source-index comparability;
 - `stale_output_count` for packages whose source disappeared/was renamed since the previous comparable run;
-- `failed_refresh_count` for current sources whose refresh failed while an older package remains present.
+- `failed_refresh_package_count` for current sources whose refresh failed while an older package remains present.
 
 ## Source provenance and stale-output diagnostics
 
@@ -142,7 +142,7 @@ Default `validate_local.py` mode runs pure-Python tests plus focused GPU-free Bl
 
 An optional real corpus can be added with `--real-input`, `--real-output` and `--baseline-hardening`; the hardening comparison is run in fail-on-regression mode when a baseline is supplied.
 
-The runner writes a machine-readable `tests/blender_runtime/artifacts/local-validation.json` summary unless another path is requested with `--report`.
+The runner writes a machine-readable `tests/blender_runtime/artifacts/local-validation.json` summary including exact git commit, dirty-tree state, Python version and Blender version unless another path is requested with `--report`.
 
 ## Recommended production sequence
 
