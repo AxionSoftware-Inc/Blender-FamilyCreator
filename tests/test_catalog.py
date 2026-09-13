@@ -1,63 +1,107 @@
+import copy
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from catalog import build_library_index
+from test_schema import BASE_MANIFEST
 
 
 def _manifest(family_id, name, family_kind, automatic_ready=True):
-    return {
-        "schema": "axion.family",
-        "schemaVersion": 2,
-        "familyId": family_id,
-        "familyKind": family_kind,
-        "name": name,
-        "category": "Furniture",
+    data = copy.deepcopy(BASE_MANIFEST)
+    data["familyId"] = family_id
+    data["familyKind"] = family_kind
+    data["name"] = name
+    data["category"] = "Furniture"
+    data["quality"] = {
+        "ready": bool(automatic_ready),
+        "automaticReady": bool(automatic_ready),
+        "score": 90 if automatic_ready else 60,
+    }
+    data["familyProfile"] = {"group": "Furniture", "category": "Furniture"}
+
+    data["types"]["Wide"] = {
+        "width": 1.8,
+        "depth": 0.8,
+        "height": 0.75,
+        "semanticParameters": {"top_thickness": 0.04},
+    }
+    data["runtimeProxy"]["typeBounds"]["Wide"] = {
+        "min": [-0.9, -0.4, -0.375],
+        "max": [0.9, 0.4, 0.375],
+        "center": [0.0, 0.0, 0.0],
+        "size": [1.8, 0.8, 0.75],
+    }
+    data["geometryVariants"] = {
+        "Default": {"uri": f"{name.lower()}.glb", "baked": True, "primary": True},
+        "Wide": {"uri": "variants/wide.glb", "baked": True, "primary": False},
+    }
+    data["geometryStrategy"] = {
+        "mode": "BAKED_TYPE_VARIANTS",
         "activeType": "Default",
-        "types": {
-            "Default": {"width": 1.0, "depth": 1.0, "height": 1.0, "semanticParameters": {}},
-        },
-        "dimensions": {"width": 1.0, "depth": 1.0, "height": 1.0},
-        "quality": {"automaticReady": automatic_ready, "score": 90 if automatic_ready else 60},
-        "familyProfile": {"group": "Furniture", "category": "Furniture"},
-        "materials": [],
-        "geometryVariants": {
-            "Default": {"uri": f"{name.lower()}.glb", "baked": True, "primary": True},
-            "Wide": {"uri": "variants/wide.glb", "baked": True, "primary": False},
-        },
-        "thumbnail": {
-            "uri": f"{name.lower()}.thumbnail.png",
-            "width": 512,
-            "height": 512,
-            "format": "PNG",
-        },
-        "runtimeCost": {
-            "memberCount": 3,
+        "variantCount": 2,
+    }
+    data["thumbnail"] = {
+        "uri": f"{name.lower()}.thumbnail.png",
+        "width": 512,
+        "height": 512,
+        "format": "PNG",
+    }
+    data["runtimeCost"] = {
+        "measurement": "EVALUATED_TRIANGULATED_GEOMETRY",
+        "textureMemoryEstimate": "UNCOMPRESSED_RGBA8",
+        "memberCount": 1,
+        "meshObjects": 1,
+        "nonMeshObjects": 0,
+        "vertices": 1000,
+        "triangles": 2000,
+        "materialSlots": 2,
+        "uniqueMaterials": 2,
+        "drawCallEstimate": 3,
+        "textureCount": 2,
+        "texturePixels": 0,
+        "maxTextureDimension": 2048,
+        "estimatedTextureBytesRGBA": 0,
+        "estimatedTextureMemoryMiB": 24.5,
+        "members": [{
+            "name": "Top",
+            "role": "TOP",
             "vertices": 1000,
             "triangles": 2000,
             "materialSlots": 2,
-            "uniqueMaterials": 2,
             "drawCallEstimate": 3,
-            "textureCount": 2,
-            "maxTextureDimension": 2048,
-            "estimatedTextureMemoryMiB": 24.5,
-        },
-        "mobileBudget": {
-            "policyVersion": 2,
-            "status": "WITHIN_TARGET",
-            "sourceTriangles": 2000,
-            "sourceDrawCallEstimate": 3,
-            "sourceMaxTextureDimension": 2048,
-            "sourceTextureMemoryMiB": 24.5,
-            "optimizationReasons": [],
-            "geometryLodRecommended": False,
-            "materialOptimizationRecommended": False,
-            "textureOptimizationRecommended": False,
-            "suggestedLod1Ratio": 1.0,
-            "suggestedLod2Ratio": 0.5,
-        },
+        }],
     }
+    data["mobileBudget"] = {
+        "policyVersion": 2,
+        "familyKind": family_kind,
+        "status": "WITHIN_TARGET",
+        "sourceTriangles": 2000,
+        "sourceMaterialSlots": 2,
+        "sourceDrawCallEstimate": 3,
+        "sourceMaxTextureDimension": 2048,
+        "sourceTextureMemoryMiB": 24.5,
+        "budget": {
+            "lod0TargetTriangles": 160000,
+            "lod0HardTriangles": 450000,
+            "lod1TargetTriangles": 55000,
+            "lod2TargetTriangles": 10000,
+            "targetMaterialSlots": 8,
+            "targetDrawCalls": 12,
+            "targetTextureDimension": 2048,
+            "hardTextureDimension": 4096,
+            "targetTextureMemoryMiB": 64,
+        },
+        "optimizationReasons": [],
+        "geometryLodRecommended": False,
+        "materialOptimizationRecommended": False,
+        "textureOptimizationRecommended": False,
+        "suggestedLod1Ratio": 1.0,
+        "suggestedLod2Ratio": 0.5,
+        "warnings": [],
+    }
+    return data
 
 
 class CatalogTests(unittest.TestCase):
@@ -196,6 +240,12 @@ class CatalogTests(unittest.TestCase):
                 "LOD1": {"uri": "lod/lod1.glb", "generated": True, "triangles": 1000, "targetTriangles": 1200, "meetsTarget": True},
                 "LOD2": {"uri": "lod/lod2.glb", "generated": True, "triangles": 300, "targetTriangles": 250, "meetsTarget": False},
             }
+            manifest["lodStrategy"] = {
+                "mode": "NON_DESTRUCTIVE_DECIMATE",
+                "source": "LOD0",
+                "levelCount": 3,
+                "protectedRoles": [],
+            }
             (package / "a.family.json").write_text(json.dumps(manifest), encoding="utf-8")
             (package / "a.glb").write_bytes(b"glb")
             (package / "variants" / "wide.glb").write_bytes(b"glb")
@@ -203,6 +253,7 @@ class CatalogTests(unittest.TestCase):
             (package / "lod" / "lod1.glb").write_bytes(b"lod1")
 
             _path, payload = build_library_index(root)
+            self.assertEqual(payload["rejectedManifestCount"], 0)
             self.assertEqual(payload["familiesWithLods"], 1)
             family = payload["families"][0]
             self.assertEqual(family["geometryLods"]["LOD0"]["uri"], "window/A/a.glb")
@@ -230,7 +281,7 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(len(payload["rejectedManifests"]), 1)
             self.assertIn("duplicate familyId", payload["rejectedManifests"][0]["error"])
 
-    def test_malformed_entry_metadata_is_rejected_without_crashing_catalog(self):
+    def test_schema_invalid_manifest_is_rejected_without_crashing_catalog(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             good_path = root / "good" / "good.family.json"
@@ -251,7 +302,7 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(payload["rejectedManifestCount"], 1)
             self.assertEqual(payload["families"][0]["familyId"], "axion:chair:good")
             self.assertEqual(payload["rejectedManifests"][0]["manifest"], "bad/bad.family.json")
-            self.assertIn("catalog entry build failed", payload["rejectedManifests"][0]["error"])
+            self.assertIn("schema validation failed", payload["rejectedManifests"][0]["error"])
 
 
 if __name__ == "__main__":
