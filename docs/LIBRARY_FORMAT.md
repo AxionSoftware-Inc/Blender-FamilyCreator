@@ -255,7 +255,7 @@ marking another job's packages stale.
 Two important diagnostics are written into the batch report:
 
 - `stale_output_count`: a source from the previous comparable run is now gone or renamed, while its family ID is still present in the current library catalog;
-- `failed_refresh_count`: the source still exists and this run failed to refresh it, while the old family package is still present.
+- `failed_refresh_package_count`: the source still exists and this run failed to refresh it, while the old family package is still present.
 
 Neither condition triggers automatic deletion. Production tooling should review
 or explicitly clean stale packages. `batch_cli.py --strict` treats both as a
