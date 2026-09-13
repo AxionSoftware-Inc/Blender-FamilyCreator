@@ -1,6 +1,17 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from batch_source_index import build_source_index, compare_source_indexes, source_index_scope_matches
+from batch_source_index import (
+    SOURCE_INDEX_SCHEMA,
+    SOURCE_REGISTRY_VERSION,
+    build_source_index,
+    compare_source_indexes,
+    load_source_index,
+    source_index_scope_matches,
+    write_source_index,
+)
 
 
 class BatchSourceIndexTests(unittest.TestCase):
@@ -111,6 +122,83 @@ class BatchSourceIndexTests(unittest.TestCase):
         self.assertEqual(present["failedRefreshFamilyIds"], ["axion:window:windows/a"])
         self.assertEqual(present["failedRefreshCount"], 1)
         self.assertEqual(missing["failedRefreshFamilyIds"], [])
+
+    def test_registry_preserves_scope_history_across_alternating_jobs(self):
+        scope_a_first = build_source_index(self._report(
+            input_directory="D:/assets-a",
+            family_kind="AUTO_FOLDER",
+            results=[
+                {"source": "D:/assets-a/beds/a.blend", "family_id": "axion:bed:beds/a", "family_kind": "BED"},
+                {"source": "D:/assets-a/beds/b.blend", "family_id": "axion:bed:beds/b", "family_kind": "BED"},
+            ],
+        ))
+        scope_b = build_source_index(self._report(
+            input_directory="D:/assets-b",
+            family_kind="WINDOW",
+            results=[
+                {"source": "D:/assets-b/window.blend", "family_id": "axion:window:window", "family_kind": "WINDOW"},
+            ],
+        ))
+        scope_a_second = build_source_index(self._report(
+            input_directory="D:/assets-a",
+            family_kind="AUTO_FOLDER",
+            results=[
+                {"source": "D:/assets-a/beds/a.blend", "family_id": "axion:bed:beds/a", "family_kind": "BED"},
+            ],
+        ))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_source_index(root, scope_a_first)
+            registry = load_source_index(path)
+            self.assertEqual(registry["schema"], SOURCE_INDEX_SCHEMA)
+            self.assertEqual(registry["schemaVersion"], SOURCE_REGISTRY_VERSION)
+            self.assertEqual(registry["scopeCount"], 1)
+
+            write_source_index(root, scope_b)
+            registry = load_source_index(path)
+            self.assertEqual(registry["scopeCount"], 2)
+
+            result = compare_source_indexes(
+                registry,
+                scope_a_second,
+                catalog_family_ids={"axion:bed:beds/a", "axion:bed:beds/b", "axion:window:window"},
+            )
+            self.assertTrue(result["comparable"])
+            self.assertEqual(result["staleFamilyIds"], ["axion:bed:beds/b"])
+
+            write_source_index(root, scope_a_second)
+            updated = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["scopeCount"], 2)
+            matching_a = [
+                scope for scope in updated["scopes"]
+                if scope.get("inputDirectory") == "D:/assets-a"
+            ]
+            self.assertEqual(len(matching_a), 1)
+            self.assertEqual(matching_a[0]["sourceCount"], 1)
+
+    def test_legacy_v1_file_is_upgraded_without_losing_old_scope(self):
+        legacy = build_source_index(self._report(
+            input_directory="D:/legacy",
+            family_kind="BED",
+            results=[{"source": "D:/legacy/a.blend", "family_id": "axion:bed:a", "family_kind": "BED"}],
+        ))
+        current = build_source_index(self._report(
+            input_directory="D:/current",
+            family_kind="WINDOW",
+            results=[{"source": "D:/current/a.blend", "family_id": "axion:window:a", "family_kind": "WINDOW"}],
+        ))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "batch-source-index.json"
+            path.write_text(json.dumps(legacy), encoding="utf-8")
+            write_source_index(root, current)
+            registry = load_source_index(path)
+            self.assertEqual(registry["schemaVersion"], SOURCE_REGISTRY_VERSION)
+            self.assertEqual(registry["scopeCount"], 2)
+            self.assertTrue(compare_source_indexes(registry, legacy, catalog_family_ids={"axion:bed:a"})["comparable"])
+            self.assertTrue(compare_source_indexes(registry, current, catalog_family_ids={"axion:window:a"})["comparable"])
 
 
 if __name__ == "__main__":
