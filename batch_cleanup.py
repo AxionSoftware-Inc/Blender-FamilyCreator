@@ -11,10 +11,15 @@ from __future__ import annotations
 import bpy
 
 
+# Keep this list broad enough for vendor assets while remaining version-safe:
+# `_collection()` simply ignores names not exposed by the running Blender build.
+# Objects themselves are removed separately by batch.py before this dependency
+# cleanup runs.
 DATA_COLLECTION_NAMES = (
     "meshes",
     "curves",
     "metaballs",
+    "pointclouds",
     "materials",
     "images",
     "textures",
@@ -30,6 +35,9 @@ DATA_COLLECTION_NAMES = (
     "volumes",
     "worlds",
     "grease_pencils",
+    "particles",
+    "movieclips",
+    "masks",
     "collections",
 )
 
